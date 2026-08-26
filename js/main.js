@@ -483,7 +483,7 @@ var heo = {
     // 频谱柱数量 & 帧间平滑缓冲
     const BAR_COUNT = 64;
     const smoothed = new Float32Array(BAR_COUNT);
-    const VIS_GAIN = 1.0; // 固定增益：保留音乐真实动态，不做归一化/封顶（无高度限制）
+    const VIS_GAIN = 0.7; // 固定增益：保留音乐真实动态，不做归一化/封顶（无高度限制）
     // 频率映射：中心 = 低频(bass，能量最大 → 最高)；
     // 左半边 = 低频向「中低频」展开，右半边 = 低频向「中高频」展开（两边频率区间不同 → 形状不对称）。
     // 这样保持「中间最高」但左右不再镜像对称。
@@ -617,7 +617,7 @@ var heo = {
         smoothed[i] += (target - smoothed[i]) * 0.3;                 // 帧间平滑
         // 真实幅度、不做任何归一化/封顶：柱子随音乐自由起伏，无高度限制
         const v = Math.min(255, smoothed[i]) / 255;
-        amps[i] = Math.pow(v, 0.5) * VIS_GAIN;
+        amps[i] = Math.pow(v, 0.8) * VIS_GAIN;
       }
       // 底部画布（向上）与顶部画布（向下）镜像渲染 → 页面顶端/底端对称
       renderBars(ctx, w, h, amps, false);

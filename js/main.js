@@ -402,15 +402,17 @@ var heo = {
   
   // 新增方法：音乐可视化（Web Audio 频谱；跨域音频无数据时自动降级为程序动画）
   initVisualizer: function() {
-    const canvas = document.getElementById('heo-visualizer');
-    if (!canvas) return;
-    // 移入 #heoMusic-page，使其与模糊背景处于同一层叠上下文：
-    // 这样画布能显示在 #web_bg 之上，又不会遮挡歌词/封面/控制器
     const page = document.getElementById('heoMusic-page');
-    if (page && canvas.parentElement !== page) {
-      page.insertBefore(canvas, page.firstChild);
+    const canvas = document.getElementById('heo-visualizer');        // 底部画布
+    const topCanvas = document.getElementById('heo-visualizer-top'); // 顶部画布（与底部镜像对称）
+    if (!canvas || !topCanvas) return;
+    // 两条画布都移入 #heoMusic-page，使其与模糊背景同一层叠上下文（显示在背景之上、不挡控件）
+    if (page) {
+      if (canvas.parentElement !== page) page.insertBefore(canvas, page.firstChild);
+      if (topCanvas.parentElement !== page) page.insertBefore(topCanvas, page.firstChild);
     }
     const ctx = canvas.getContext('2d');
+    const topCtx = topCanvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
     let audioCtx = null, analyser = null, source = null, dataArray = null;
     let synthetic = false, zeroCount = 0, nonZeroCount = 0, player = null, attached = false;
@@ -464,30 +466,31 @@ var heo = {
       img.src = src;
     }
 
-    // 频谱柱状数量 & 帧间平滑缓冲，让动作更顺滑
+    // 频谱柱数量 & 帧间平滑缓冲
     const BAR_COUNT = 64;
     const smoothed = new Float32Array(BAR_COUNT);
-    // 把 BAR_COUNT 个点映射到频率 bin：只取前 75% 频段（丢弃 16kHz+ 几乎无能量的空段），
-    // 对数指数降到 1.3 让中频更展开；配合绘制时的高频增益 + 对比提升，解决「右侧不动」。
+    // 频率映射：以画布「中心」为低频(bass，能量大)，向两侧映射到高频(treble，能量小)，
+    // 因此中间最高、向两边递减，左右对称，不再「左边一直最高」。只取前 75% 频段（丢弃空段）。
     function barValue(i) {
       const bins = analyser ? analyser.frequencyBinCount : BAR_COUNT;
-      const span = bins * 0.75;
-      const t0 = Math.pow(i / BAR_COUNT, 1.3);
-      const t1 = Math.pow((i + 1) / BAR_COUNT, 1.3);
-      const lo = Math.floor(t0 * span);
-      const hi = Math.max(lo + 1, Math.floor(t1 * span));
+      const span = Math.max(1, Math.floor(bins * 0.75));
+      const d = Math.abs(i - (BAR_COUNT - 1) / 2) / ((BAR_COUNT - 1) / 2); // 0(中心)..1(边缘)
+      const idx = Math.min(span - 1, Math.floor(Math.pow(d, 0.85) * (span - 1)));
       let s = 0, c = 0;
-      for (let b = lo; b < hi && b < bins; b++) { s += dataArray[b]; c++; }
+      for (let b = Math.max(0, idx - 1); b <= Math.min(bins - 1, idx + 1); b++) { s += dataArray[b]; c++; }
       return c ? s / c : 0;
     }
 
     function resize() {
-      // 响应式高度：手机（<768px）更矮，桌面 120px，避免遮挡控制器
-      const cssH = window.innerWidth < 768 ? 80 : 120;
-      canvas.width = window.innerWidth * dpr;
-      canvas.height = cssH * dpr;
-      canvas.style.width = window.innerWidth + 'px';
-      canvas.style.height = cssH + 'px';
+      // 响应式高度：手机（<768px）更矮，桌面 120px，避免遮挡
+      const cssW = window.innerWidth;
+      const cssH = cssW < 768 ? 80 : 120;
+      [canvas, topCanvas].forEach(function (cv) {
+        cv.width = cssW * dpr;
+        cv.height = cssH * dpr;
+        cv.style.width = cssW + 'px';
+        cv.style.height = cssH + 'px';
+      });
     }
     resize();
     window.addEventListener('resize', resize);
@@ -515,10 +518,46 @@ var heo = {
       }
     }
 
+    // 画一组胶囊柱状：底部画布从底向上长(flip=false)，顶部画布从顶向下长(flip=true) → 页面上下对称
+    function renderBars(c, cw, ch, amps, flip) {
+      const N = amps.length;
+      const gap = 3 * dpr;
+      const barW = (cw - gap * (N + 1)) / N;
+      const maxH = ch * 0.9;
+      const minBar = 2 * dpr;
+      const base = coverColor || { r: 167, g: 139, b: 250 };
+      const lite = lighten(base, 0.45);
+      // 横向渐变：主色→提亮→主色（中间最亮，呼应对称）
+      const grad = c.createLinearGradient(0, 0, cw, 0);
+      grad.addColorStop(0.0, rgba(base, 0.95));
+      grad.addColorStop(0.5, rgba(lite, 0.6));
+      grad.addColorStop(1.0, rgba(base, 0.95));
+      c.save();
+      c.fillStyle = grad;
+      c.shadowColor = rgba(base, 0.7);
+      c.shadowBlur = 6 * dpr;
+      for (let i = 0; i < N; i++) {
+        const x = gap + i * (barW + gap);
+        const bh = Math.max(minBar, amps[i] * maxH);
+        const y = flip ? 0 : ch - bh;          // 顶部画布从 y=0 向下长，底部从底向上
+        const r = Math.min(barW / 2, bh / 2);  // 胶囊两端圆角
+        c.beginPath();
+        c.moveTo(x + r, y);
+        c.arcTo(x + barW, y, x + barW, y + bh, r);
+        c.arcTo(x + barW, y + bh, x, y + bh, r);
+        c.arcTo(x, y + bh, x, y, r);
+        c.arcTo(x, y, x + barW, y, r);
+        c.closePath();
+        c.fill();
+      }
+      c.restore();
+    }
+
     function draw() {
       requestAnimationFrame(draw);
       const w = canvas.width, h = canvas.height;
       ctx.clearRect(0, 0, w, h);
+      topCtx.clearRect(0, 0, topCanvas.width, topCanvas.height);
       const playing = player && !player.paused;
       if (analyser && playing) {
         analyser.getByteFrequencyData(dataArray);
@@ -534,20 +573,6 @@ var heo = {
           if (++nonZeroCount > 10) synthetic = false;
         }
       }
-
-      // 用二次贝塞尔（中点法）把控制点连成柔顺曲线
-      function curveThrough(pts) {
-        ctx.moveTo(pts[0].x, pts[0].y);
-        for (let i = 1; i < pts.length - 1; i++) {
-          const xc = (pts[i].x + pts[i + 1].x) / 2;
-          const yc = (pts[i].y + pts[i + 1].y) / 2;
-          ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
-        }
-        const last = pts[pts.length - 1];
-        const prev = pts[pts.length - 2];
-        ctx.quadraticCurveTo(prev.x, prev.y, last.x, last.y);
-      }
-
       const now = performance.now() / 1000;
       const N = BAR_COUNT;
       const amps = new Array(N);
@@ -555,63 +580,20 @@ var heo = {
         let target = 0;
         if (playing) {
           if (synthetic) {
-            target = (Math.sin(now * 2.2 + i * 0.30) * 0.5 + 0.5) * 120
-                   + Math.sin(now * 5 + i * 0.8) * 22 + 28;
+            // 程序动画也保持「中间高、两边低」的对称山形，避免左边恒高
+            const env = Math.cos((i / (N - 1) - 0.5) * Math.PI);
+            target = env * ((Math.sin(now * 2.5 + i * 0.15) * 0.5 + 0.5) * 110 + 20);
           } else if (analyser) {
             target = barValue(i);
           }
         }
-        smoothed[i] += (target - smoothed[i]) * 0.25;   // 更柔的帧间平滑
-        const gain = 1 + (i / (N - 1)) * 1.1;           // 越靠右放大越多，右侧也起伏
-        const norm = Math.pow(Math.min(255, smoothed[i] * gain) / 255, 0.6); // 低能量段也抬起
+        smoothed[i] += (target - smoothed[i]) * 0.3;                 // 帧间平滑
+        const norm = Math.pow(Math.min(255, smoothed[i]) / 255, 0.7); // 轻微对比提升，让两侧也有起伏
         amps[i] = norm;
       }
-
-      // 上下镜像对称：以画布中线为基线，上侧与下侧镜像起伏
-      const centerY = h / 2;
-      const halfMax = h * 0.42;
-      const upper = [], lower = [];
-      for (let i = 0; i < N; i++) {
-        const x = (w * i) / (N - 1);
-        const a = amps[i] * halfMax;
-        upper.push({ x, y: centerY - a });
-        lower.push({ x, y: centerY + a });
-      }
-
-      // 线条主色取自专辑封面；未取到时用柔紫兜底。横向渐变：主色→提亮→主色（左右对称）
-      const base = coverColor || { r: 167, g: 139, b: 250 };
-      const lite = lighten(base, 0.5);
-      const grad = ctx.createLinearGradient(0, 0, w, 0);
-      grad.addColorStop(0.0, rgba(base, 0.95));
-      grad.addColorStop(0.5, rgba(lite, 0.55));
-      grad.addColorStop(1.0, rgba(base, 0.95));
-
-      // 柔和的镜像线条（细描边 + 轻微辉光，不画硬柱）
-      ctx.save();
-      ctx.lineJoin = 'round';
-      ctx.lineCap = 'round';
-      ctx.lineWidth = 1.8 * dpr;
-      ctx.strokeStyle = grad;
-      ctx.shadowColor = rgba(base, 0.85);
-      ctx.shadowBlur = 7 * dpr;
-      ctx.beginPath();
-      curveThrough(upper);
-      ctx.stroke();
-      ctx.beginPath();
-      curveThrough(lower);
-      ctx.stroke();
-      ctx.restore();
-
-      // 中线极淡柔光，衬出镜像感，不喧宾夺主
-      ctx.save();
-      ctx.globalAlpha = 0.22;
-      ctx.strokeStyle = rgba(lite, 0.9);
-      ctx.lineWidth = 1 * dpr;
-      ctx.beginPath();
-      ctx.moveTo(0, centerY);
-      ctx.lineTo(w, centerY);
-      ctx.stroke();
-      ctx.restore();
+      // 底部画布（向上）与顶部画布（向下）镜像渲染 → 页面顶端/底端对称
+      renderBars(ctx, w, h, amps, false);
+      renderBars(topCtx, topCanvas.width, topCanvas.height, amps, true);
     }
     draw();
 

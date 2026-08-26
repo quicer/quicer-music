@@ -415,6 +415,21 @@ var heo = {
     let audioCtx = null, analyser = null, source = null, dataArray = null;
     let synthetic = false, zeroCount = 0, nonZeroCount = 0, player = null, attached = false;
 
+    // 频谱柱状数量 & 帧间平滑缓冲，让动作更顺滑
+    const BAR_COUNT = 64;
+    const smoothed = new Float32Array(BAR_COUNT);
+    // 把 64 根柱映射到频率 bin（对数分布，让中高频一侧也有起伏，避免右侧一片死寂）
+    function barValue(i) {
+      const bins = analyser ? analyser.frequencyBinCount : BAR_COUNT;
+      const t0 = Math.pow(i / BAR_COUNT, 1.7);
+      const t1 = Math.pow((i + 1) / BAR_COUNT, 1.7);
+      const lo = Math.floor(t0 * (bins - 1));
+      const hi = Math.max(lo + 1, Math.floor(t1 * (bins - 1)));
+      let s = 0;
+      for (let b = lo; b < hi; b++) s += dataArray[b];
+      return s / (hi - lo);
+    }
+
     function resize() {
       canvas.width = window.innerWidth * dpr;
       canvas.height = 140 * dpr;
@@ -466,27 +481,53 @@ var heo = {
           if (++nonZeroCount > 10) synthetic = false;
         }
       }
-      const count = 64;
-      const gap = 4 * dpr;
-      const barW = (w - gap * (count + 1)) / count;
       const now = performance.now() / 1000;
-      for (let i = 0; i < count; i++) {
-        let v = 0;
+      const gap = 3 * dpr;
+      const barW = (w - gap * (BAR_COUNT + 1)) / BAR_COUNT;
+      const maxH = h * 0.92;
+
+      // 横贯整条画布的彩色渐变（紫 → 粉 → 橙 → 金），呼应站点金色基调
+      const hue = ctx.createLinearGradient(0, 0, w, 0);
+      hue.addColorStop(0.00, '#7b5cff');
+      hue.addColorStop(0.45, '#ff5fa2');
+      hue.addColorStop(0.75, '#ff9f6b');
+      hue.addColorStop(1.00, '#ffd166');
+
+      // 底部一条柔光基线
+      ctx.save();
+      ctx.globalAlpha = 0.45;
+      const base = ctx.createLinearGradient(0, 0, w, 0);
+      base.addColorStop(0, 'rgba(123,92,255,0)');
+      base.addColorStop(0.5, 'rgba(255,255,255,0.35)');
+      base.addColorStop(1, 'rgba(255,209,102,0)');
+      ctx.fillStyle = base;
+      ctx.fillRect(0, h - 2 * dpr, w, 2 * dpr);
+      ctx.restore();
+
+      // 整体霓虹辉光
+      ctx.shadowColor = 'rgba(255,140,190,0.75)';
+      ctx.shadowBlur = 8 * dpr;
+
+      for (let i = 0; i < BAR_COUNT; i++) {
+        let target = 0;
         if (playing) {
           if (synthetic) {
-            v = (Math.sin(now * 3 + i * 0.35) * 0.5 + 0.5) * 120 + Math.sin(now * 7 + i * 0.9) * 25 + 30;
+            target = (Math.sin(now * 3 + i * 0.35) * 0.5 + 0.5) * 150
+                   + Math.sin(now * 7 + i * 0.9) * 30 + 40;
           } else if (analyser) {
-            v = dataArray[i];
+            target = barValue(i);
           }
         }
-        const barH = Math.max(2 * dpr, (v / 255) * h * 0.85);
+        // 帧间平滑，动作更顺滑
+        smoothed[i] += (target - smoothed[i]) * 0.35;
+        const v = smoothed[i];
+        const barH = Math.max(3 * dpr, (v / 255) * maxH);
         const x = gap + i * (barW + gap);
         const y = h - barH;
-        const r = Math.min(barW / 2, 6 * dpr);
-        const grad = ctx.createLinearGradient(0, h, 0, y);
-        grad.addColorStop(0, 'rgba(255,255,255,0.22)');
-        grad.addColorStop(1, 'rgba(255,255,255,0.7)');
-        ctx.fillStyle = grad;
+        const r = Math.min(barW / 2, 5 * dpr);
+
+        // 柱体：用横向彩色渐变上色
+        ctx.fillStyle = hue;
         ctx.beginPath();
         ctx.moveTo(x, y + r);
         ctx.arcTo(x, y, x + r, y, r);
@@ -496,7 +537,16 @@ var heo = {
         ctx.lineTo(x, y + barH);
         ctx.closePath();
         ctx.fill();
+
+        // 顶部高光帽（关闭辉光，避免糊成一团）
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.beginPath();
+        ctx.arc(x + barW / 2, y, Math.max(1 * dpr, r * 0.7), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 8 * dpr;
       }
+      ctx.shadowBlur = 0;
     }
     draw();
 

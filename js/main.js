@@ -393,6 +393,12 @@ var heo = {
   initVisualizer: function() {
     const canvas = document.getElementById('heo-visualizer');
     if (!canvas) return;
+    // 移入 #heoMusic-page，使其与模糊背景处于同一层叠上下文：
+    // 这样画布能显示在 #web_bg 之上，又不会遮挡歌词/封面/控制器
+    const page = document.getElementById('heoMusic-page');
+    if (page && canvas.parentElement !== page) {
+      page.insertBefore(canvas, page.firstChild);
+    }
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
     let audioCtx = null, analyser = null, source = null, dataArray = null;

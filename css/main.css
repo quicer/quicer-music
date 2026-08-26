@@ -103,7 +103,8 @@ body {
   z-index: 2;
 }
 
-#heo-visualizer {
+/* 音乐可视化画布：固定在底部，置于模糊背景之上、播放器内容之下 */
+#heoMusic-page #heo-visualizer {
   position: fixed;
   left: 0;
   bottom: 0;
@@ -113,6 +114,19 @@ body {
   pointer-events: none;
   -webkit-mask-image: linear-gradient(to top, #000 55%, transparent);
   mask-image: linear-gradient(to top, #000 55%, transparent);
+}
+
+/* 确保歌词 / 专辑封面 / 列表 / 控制器始终在可视化之上（不改动其已有定位） */
+#heoMusic-page .aplayer-info,
+#heoMusic-page .aplayer-list {
+  position: relative;
+  z-index: 2;
+}
+
+#heoMusic-page .aplayer-lrc,
+#heoMusic-page .aplayer-controller {
+  position: relative;
+  z-index: 2;
 }
 
 #heoMusic-page .aplayer {

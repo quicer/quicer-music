@@ -389,10 +389,114 @@ var heo = {
     document.body.appendChild(btn);
   },
   
+  // 新增方法：音乐可视化（Web Audio 频谱；跨域音频无数据时自动降级为程序动画）
+  initVisualizer: function() {
+    const canvas = document.getElementById('heo-visualizer');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    let audioCtx = null, analyser = null, source = null, dataArray = null;
+    let synthetic = false, zeroCount = 0, player = null, attached = false;
+
+    function resize() {
+      canvas.width = window.innerWidth * dpr;
+      canvas.height = 140 * dpr;
+      canvas.style.width = window.innerWidth + 'px';
+      canvas.style.height = '140px';
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    function ensureAudio(pl) {
+      if (audioCtx || !pl || !pl.audio) return;
+      try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        source = audioCtx.createMediaElementSource(pl.audio);
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 128;
+        analyser.smoothingTimeConstant = 0.8;
+        source.connect(analyser);
+        analyser.connect(audioCtx.destination);
+        dataArray = new Uint8Array(analyser.frequencyBinCount);
+      } catch (e) {
+        console.warn('[visualizer] 音频上下文初始化失败', e);
+        audioCtx = null;
+      }
+    }
+
+    function draw() {
+      requestAnimationFrame(draw);
+      const w = canvas.width, h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+      const playing = player && !player.paused;
+      if (analyser && playing) {
+        analyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+        // 跨域音频会让 AnalyserNode 拿不到数据（全 0），此时降级为程序动画
+        if (sum === 0) {
+          zeroCount++;
+          if (zeroCount > 45) synthetic = true;
+        } else {
+          zeroCount = 0;
+        }
+      }
+      const count = 64;
+      const gap = 4 * dpr;
+      const barW = (w - gap * (count + 1)) / count;
+      const now = performance.now() / 1000;
+      for (let i = 0; i < count; i++) {
+        let v = 0;
+        if (playing) {
+          if (synthetic) {
+            v = (Math.sin(now * 3 + i * 0.35) * 0.5 + 0.5) * 120 + Math.sin(now * 7 + i * 0.9) * 25 + 30;
+          } else if (analyser) {
+            v = dataArray[i];
+          }
+        }
+        const barH = Math.max(2 * dpr, (v / 255) * h * 0.85);
+        const x = gap + i * (barW + gap);
+        const y = h - barH;
+        const r = Math.min(barW / 2, 6 * dpr);
+        const grad = ctx.createLinearGradient(0, h, 0, y);
+        grad.addColorStop(0, 'rgba(255,255,255,0.22)');
+        grad.addColorStop(1, 'rgba(255,255,255,0.7)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(x, y + r);
+        ctx.arcTo(x, y, x + r, y, r);
+        ctx.lineTo(x + barW, y);
+        ctx.arcTo(x + barW, y, x + barW, y + r, r);
+        ctx.lineTo(x + barW, y + barH);
+        ctx.lineTo(x, y + barH);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    draw();
+
+    function tryAttach() {
+      if (attached) return;
+      if (typeof ap !== 'undefined' && ap && ap.audio) {
+        player = ap;
+        attached = true;
+        ensureAudio(player);
+        player.on('play', function () {
+          ensureAudio(player);
+          if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        });
+      } else {
+        setTimeout(tryAttach, 300);
+      }
+    }
+    tryAttach();
+  },
+
   // 初始化所有事件
   init: function() {
     this.getCustomPlayList();
     this.addHomeButton();
+    this.initVisualizer();
     this.initScrollEvents();
   }
 }

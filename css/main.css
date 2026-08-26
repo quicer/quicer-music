@@ -97,6 +97,24 @@ body {
   margin-top: 60px;
 }
 
+/* 音乐可视化画布：固定在底部，置于播放器之下，顶部渐隐 */
+#heoMusic-page {
+  position: relative;
+  z-index: 2;
+}
+
+#heo-visualizer {
+  position: fixed;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  height: 140px;
+  z-index: 1;
+  pointer-events: none;
+  -webkit-mask-image: linear-gradient(to top, #000 55%, transparent);
+  mask-image: linear-gradient(to top, #000 55%, transparent);
+}
+
 #heoMusic-page .aplayer {
   display: flex;
   flex-direction: row;

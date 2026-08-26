@@ -13,6 +13,9 @@ if (typeof userServer === 'undefined') {
 if (typeof userType === 'undefined') {
   var userType = "playlist"; // 替换为实际的默认值
 }
+if (typeof homeUrl === 'undefined') {
+  var homeUrl = "https://quicer-workers.sryze.cc"; // 替换为你的主页地址
+}
 
 if (typeof remoteMusic !== 'undefined' && remoteMusic) {
   fetch(remoteMusic)
@@ -372,9 +375,24 @@ var heo = {
     }
   },
   
+  // 新增方法：在右上角注入「前往主页」按钮
+  addHomeButton: function() {
+    if (document.querySelector('.heo-home-btn')) return; // 防止重复注入
+    if (typeof homeUrl === 'undefined' || !homeUrl) return;
+    const btn = document.createElement('a');
+    btn.className = 'heo-home-btn';
+    btn.href = homeUrl;
+    btn.target = '_blank';
+    btn.rel = 'noopener';
+    btn.setAttribute('aria-label', '前往我的主页');
+    btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 8h-3v9h-4v-6h-4v6H6v-9H3z"/></svg><span>主页</span>';
+    document.body.appendChild(btn);
+  },
+  
   // 初始化所有事件
   init: function() {
     this.getCustomPlayList();
+    this.addHomeButton();
     this.initScrollEvents();
   }
 }

@@ -1,6 +1,7 @@
 var userId = "13908245149";
 var userServer = "netease";
 var userType = "playlist";
+var homeUrl = "https://quicer-workers.sryze.cc"; // 右上角「主页」按钮跳转地址
 // var localMusic = [{
 //     name: '重生之我在异乡为异客',
 //     artist: '王睿卓',

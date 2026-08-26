@@ -413,8 +413,24 @@ var heo = {
     resize();
     window.addEventListener('resize', resize);
 
+    function isSameOrigin(url) {
+      try {
+        const u = new URL(url, location.href);
+        return u.protocol === location.protocol && u.host === location.host;
+      } catch (e) {
+        return false;
+      }
+    }
+
     function ensureAudio(pl) {
       if (audioCtx || !pl || !pl.audio) return;
+      const url = pl.audio.currentSrc || pl.audio.src || '';
+      // 跨域音频一旦接入 Web Audio 图，浏览器会将其静音（且拿不到真实频谱）。
+      // 因此跨域时放弃真实频谱、改用程序动画，保证声音正常播放。
+      if (url && !isSameOrigin(url)) {
+        synthetic = true;
+        return;
+      }
       try {
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         source = audioCtx.createMediaElementSource(pl.audio);

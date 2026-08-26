@@ -5,7 +5,7 @@ var scrollTimer = null; // 添加定时器变量
 var animationFrameId = null; // 添加变量用于跟踪动画帧ID
 
 if (typeof userId === 'undefined') {
-  var userId = "8152976493"; // 替换为实际的默认值
+  var userId = "13908245149"; // 替换为实际的默认值
 }
 if (typeof userServer === 'undefined') {
   var userServer = "netease"; // 替换为实际的默认值

@@ -22,7 +22,7 @@ if (typeof homeUrl === 'undefined') {
 // 填值后：歌单请求与音频流都走该 Worker，Worker 为音频加上 Access-Control-Allow-Origin，
 // 浏览器才能通过 Web Audio 的 AnalyserNode 读取真实频谱（否则跨域音频会被静音）。
 if (typeof musicWorkerUrl === 'undefined') {
-  var musicWorkerUrl = ""; // ← 在此填入 Worker 地址，例如 https://heo-music.xxx.workers.dev
+  var musicWorkerUrl = "https://round-mountain-59b2.3b28611530.workers.dev"; // ← 在此填入 Worker 地址
 }
 if (musicWorkerUrl) {
   window.meting_api = musicWorkerUrl.replace(/\/+$/, '') + "/?server=:server&type=:type&id=:id&r=:r";

@@ -132,15 +132,15 @@ body #music_bg, body #web_bg { display: none !important; }
   left: 0;
   bottom: 0;
   width: 100%;
-  height: 120px;
+  height: 220px;
   z-index: 1;
   pointer-events: none;
-  -webkit-mask-image: linear-gradient(to top, #000 55%, transparent);
-  mask-image: linear-gradient(to top, #000 55%, transparent);
+  -webkit-mask-image: linear-gradient(to top, #000 88%, transparent);
+  mask-image: linear-gradient(to top, #000 88%, transparent);
 }
 /* 手机端画布更矮，避免遮挡控制器 */
 @media (max-width: 768px) {
-  #heoMusic-page #heo-visualizer { height: 80px; }
+  #heoMusic-page #heo-visualizer { height: 140px; }
 }
 
 /* 顶部可视化画布：固定在页面顶端，与底部画布镜像对称（遮罩向下渐隐） */
@@ -149,14 +149,14 @@ body #music_bg, body #web_bg { display: none !important; }
   left: 0;
   top: 0;
   width: 100%;
-  height: 120px;
+  height: 220px;
   z-index: 1;
   pointer-events: none;
-  -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent);
-  mask-image: linear-gradient(to bottom, #000 55%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, #000 88%, transparent);
+  mask-image: linear-gradient(to bottom, #000 88%, transparent);
 }
 @media (max-width: 768px) {
-  #heoMusic-page #heo-visualizer-top { height: 80px; }
+  #heoMusic-page #heo-visualizer-top { height: 140px; }
 }
 
 /* 确保歌词 / 专辑封面 / 列表 / 控制器始终在可视化之上（不改动其已有定位） */
@@ -665,7 +665,7 @@ body .aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-icon.apla
   /* 控制按键和进度条 */
   #heoMusic-page .aplayer-info .aplayer-controller {
     width: 100%;
-    bottom: 120px;
+    bottom: 140px;
   }
   #heoMusic-page .aplayer-info .aplayer-controller .aplayer-bar-wrap {
     margin: 0 32px;

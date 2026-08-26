@@ -507,7 +507,7 @@ var heo = {
     function resize() {
       // 响应式高度：手机（<768px）更矮，桌面 120px，避免遮挡
       const cssW = window.innerWidth;
-      const cssH = cssW < 768 ? 80 : 120;
+      const cssH = cssW < 768 ? 140 : 220;
       [canvas, topCanvas].forEach(function (cv) {
         cv.width = cssW * dpr;
         cv.height = cssH * dpr;

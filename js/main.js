@@ -17,6 +17,17 @@ if (typeof homeUrl === 'undefined') {
   var homeUrl = "https://quicer-workers.sryze.cc"; // 替换为你的主页地址
 }
 
+// 音乐馆「真实频谱」音频代理 Worker 地址（对应仓库内 music-worker.js）。
+// 部署 Cloudflare Worker 后把地址填到下面；留空则回落到默认 meting-api（仅有程序动画频谱，声音正常）。
+// 填值后：歌单请求与音频流都走该 Worker，Worker 为音频加上 Access-Control-Allow-Origin，
+// 浏览器才能通过 Web Audio 的 AnalyserNode 读取真实频谱（否则跨域音频会被静音）。
+if (typeof musicWorkerUrl === 'undefined') {
+  var musicWorkerUrl = ""; // ← 在此填入 Worker 地址，例如 https://heo-music.xxx.workers.dev
+}
+if (musicWorkerUrl) {
+  window.meting_api = musicWorkerUrl.replace(/\/+$/, '') + "/?server=:server&type=:type&id=:id&r=:r";
+}
+
 if (typeof remoteMusic !== 'undefined' && remoteMusic) {
   fetch(remoteMusic)
     .then(response => response.json())
@@ -402,7 +413,7 @@ var heo = {
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
     let audioCtx = null, analyser = null, source = null, dataArray = null;
-    let synthetic = false, zeroCount = 0, player = null, attached = false;
+    let synthetic = false, zeroCount = 0, nonZeroCount = 0, player = null, attached = false;
 
     function resize() {
       canvas.width = window.innerWidth * dpr;
@@ -413,21 +424,11 @@ var heo = {
     resize();
     window.addEventListener('resize', resize);
 
-    function isSameOrigin(url) {
-      try {
-        const u = new URL(url, location.href);
-        return u.protocol === location.protocol && u.host === location.host;
-      } catch (e) {
-        return false;
-      }
-    }
-
     function ensureAudio(pl) {
       if (audioCtx || !pl || !pl.audio) return;
-      const url = pl.audio.currentSrc || pl.audio.src || '';
-      // 跨域音频一旦接入 Web Audio 图，浏览器会将其静音（且拿不到真实频谱）。
-      // 因此跨域时放弃真实频谱、改用程序动画，保证声音正常播放。
-      if (url && !isSameOrigin(url)) {
+      // 仅当音频走 CORS 代理（audio.crossOrigin='anonymous' + Worker 提供 CORS 头）时才接入真实频谱；
+      // 否则跨域媒体一旦接入 Web Audio 图会被静音，这里退回程序动画以保证声音正常播放。
+      if (pl.audio.crossOrigin !== 'anonymous') {
         synthetic = true;
         return;
       }
@@ -455,12 +456,14 @@ var heo = {
         analyser.getByteFrequencyData(dataArray);
         let sum = 0;
         for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
-        // 跨域音频会让 AnalyserNode 拿不到数据（全 0），此时降级为程序动画
+        // 跨域音频（CORS 失败）会让 AnalyserNode 拿不到数据（全 0）→ 降级为程序动画。
+        // 加入迟滞：连续 45 帧全 0 才切到假动画（避免安静过门误判），连续 10 帧有数据再切回真实频谱。
         if (sum === 0) {
-          zeroCount++;
-          if (zeroCount > 45) synthetic = true;
+          nonZeroCount = 0;
+          if (++zeroCount > 45) synthetic = true;
         } else {
           zeroCount = 0;
+          if (++nonZeroCount > 10) synthetic = false;
         }
       }
       const count = 64;
@@ -502,6 +505,13 @@ var heo = {
       if (typeof ap !== 'undefined' && ap && ap.audio) {
         player = ap;
         attached = true;
+        // 仅当启用音频代理 Worker 时，为音频打上 CORS 标记，Web Audio 才能读到真实频谱（否则会被静音）。
+        // 重新 load() 使刚设置的 crossOrigin 在首次加载（尚未播放）时即生效，几乎无感。
+        // 注意：默认（未填 musicWorkerUrl）模式下绝不能设 crossOrigin，否则 zhheo CDN 无 CORS 头会导致音频被拦截、无声。
+        if (musicWorkerUrl && ap.audio.crossOrigin !== 'anonymous') {
+          ap.audio.crossOrigin = 'anonymous';
+          try { ap.audio.load(); } catch (e) {}
+        }
         ensureAudio(player);
         player.on('play', function () {
           ensureAudio(player);

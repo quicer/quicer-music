@@ -103,6 +103,29 @@ body {
   z-index: 2;
 }
 
+/* 专辑封面背景层：显示当前歌曲封面，适度模糊 + 暗化遮罩，保证内容可读 */
+#heo-cover-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background-position: center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  filter: blur(20px) brightness(0.5) saturate(1.15);
+  transform: scale(1.12); /* 放大以遮住模糊边缘 */
+  opacity: 0;
+  transition: opacity .6s ease, background-image .6s ease;
+}
+#heo-cover-bg.show { opacity: 1; }
+#heo-cover-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(0,0,0,.28), rgba(0,0,0,.45));
+}
+/* 隐藏原默认模糊背景，避免与封面背景叠加导致过糊 */
+body #music_bg, body #web_bg { display: none !important; }
+
 /* 音乐可视化画布：固定在底部，置于模糊背景之上、播放器内容之下 */
 #heoMusic-page #heo-visualizer {
   position: fixed;

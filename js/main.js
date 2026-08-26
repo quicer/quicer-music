@@ -414,6 +414,20 @@ var heo = {
     const ctx = canvas.getContext('2d');
     const topCtx = topCanvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
+
+    // 专辑封面背景层：显示当前歌曲封面（纯背景图，无需 CORS，跨域也能显示），适度模糊
+    let coverBg = document.getElementById('heo-cover-bg');
+    if (!coverBg) {
+      coverBg = document.createElement('div');
+      coverBg.id = 'heo-cover-bg';
+      document.body.appendChild(coverBg);
+    }
+    function applyCoverBackground() {
+      const cover = getCoverUrl();
+      if (!cover) return;
+      coverBg.style.backgroundImage = 'url("' + cover + '")';
+      coverBg.classList.add('show');
+    }
     let audioCtx = null, analyser = null, source = null, dataArray = null;
     let synthetic = false, zeroCount = 0, nonZeroCount = 0, player = null, attached = false;
 
@@ -594,13 +608,15 @@ var heo = {
             const osc = i < mid
               ? Math.sin(now * 2.4 + i * 0.13)
               : Math.sin(now * 3.2 + i * 0.21 + 1.7);
-            target = env * ((osc * 0.5 + 0.5) * 110 + 20);
+            target = env * ((osc * 0.5 + 0.5) * 160 + 30);
           } else if (analyser) {
             target = barValue(i);
           }
         }
         smoothed[i] += (target - smoothed[i]) * 0.3;                 // 帧间平滑
-        const norm = Math.pow(Math.min(255, smoothed[i]) / 255, 0.7); // 轻微对比提升，让两侧也有起伏
+        // 增强对比与幅度：指数降到 0.5 + 增益 1.25，让柱子起伏更明显（封顶 1 避免削平峰值）
+        const v = Math.min(255, smoothed[i]) / 255;
+        const norm = Math.min(1, Math.pow(v, 0.5) * 1.25);
         amps[i] = norm;
       }
       // 底部画布（向上）与顶部画布（向下）镜像渲染 → 页面顶端/底端对称
@@ -623,13 +639,16 @@ var heo = {
         }
         ensureAudio(player);
         extractCoverColor();                       // 首曲封面取主色
+        applyCoverBackground();                    // 首曲封面作背景
         player.on('play', function () {
           ensureAudio(player);
           if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
           extractCoverColor();
+          applyCoverBackground();
         });
-        player.on('listswitch', function () {       // 切歌后重新取封面主色
+        player.on('listswitch', function () {       // 切歌后重新取封面主色与背景
           extractCoverColor();
+          applyCoverBackground();
         });
       } else {
         setTimeout(tryAttach, 300);

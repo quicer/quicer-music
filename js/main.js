@@ -483,6 +483,7 @@ var heo = {
     // 频谱柱数量 & 帧间平滑缓冲
     const BAR_COUNT = 64;
     const smoothed = new Float32Array(BAR_COUNT);
+    let visGain = 1; // 动态自动增益：让最高柱自适应缩放进画布，永不被裁切或撞顶
     // 频率映射：中心 = 低频(bass，能量最大 → 最高)；
     // 左半边 = 低频向「中低频」展开，右半边 = 低频向「中高频」展开（两边频率区间不同 → 形状不对称）。
     // 这样保持「中间最高」但左右不再镜像对称。
@@ -615,10 +616,17 @@ var heo = {
         }
         smoothed[i] += (target - smoothed[i]) * 0.3;                 // 帧间平滑
         // 增强对比与幅度：指数降到 0.5 + 增益 1.25，让柱子起伏更明显
-        // 不再封顶 1，允许溢出画布自然裁切，消除「最大高度」的平顶感
         const v = Math.min(255, smoothed[i]) / 255;
         amps[i] = Math.pow(v, 0.5) * 1.25;
       }
+      // 动态自动增益：当前帧最高柱映射到画布 92% 高（留极小余量），永不溢出裁切 / 撞顶。
+      // 安静或整体偏弱时增益放大（封顶 2.6 防止噪点炸开），重音时增益收缩，起伏始终可见。
+      let peak = 0;
+      for (let i = 0; i < N; i++) if (amps[i] > peak) peak = amps[i];
+      let targetGain = peak > 0.02 ? 0.92 / peak : visGain;
+      targetGain = Math.min(targetGain, 2.6);
+      visGain += (targetGain - visGain) * 0.08; // 平滑过渡，避免忽大忽小
+      for (let i = 0; i < N; i++) amps[i] *= visGain;
       // 底部画布（向上）与顶部画布（向下）镜像渲染 → 页面顶端/底端对称
       renderBars(ctx, w, h, amps, false);
       renderBars(topCtx, topCanvas.width, topCanvas.height, amps, true);

@@ -109,11 +109,15 @@ body {
   left: 0;
   bottom: 0;
   width: 100%;
-  height: 140px;
+  height: 120px;
   z-index: 1;
   pointer-events: none;
   -webkit-mask-image: linear-gradient(to top, #000 55%, transparent);
   mask-image: linear-gradient(to top, #000 55%, transparent);
+}
+/* 手机端画布更矮，避免遮挡控制器 */
+@media (max-width: 768px) {
+  #heoMusic-page #heo-visualizer { height: 80px; }
 }
 
 /* 确保歌词 / 专辑封面 / 列表 / 控制器始终在可视化之上（不改动其已有定位） */

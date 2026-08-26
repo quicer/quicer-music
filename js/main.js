@@ -418,23 +418,27 @@ var heo = {
     // 频谱柱状数量 & 帧间平滑缓冲，让动作更顺滑
     const BAR_COUNT = 64;
     const smoothed = new Float32Array(BAR_COUNT);
-    // 把 64 根柱映射到频率 bin（对数分布，让中高频一侧也有起伏，避免右侧一片死寂）
+    // 把 BAR_COUNT 个点映射到频率 bin：只取前 75% 频段（丢弃 16kHz+ 几乎无能量的空段），
+    // 对数指数降到 1.3 让中频更展开；配合绘制时的高频增益 + 对比提升，解决「右侧不动」。
     function barValue(i) {
       const bins = analyser ? analyser.frequencyBinCount : BAR_COUNT;
-      const t0 = Math.pow(i / BAR_COUNT, 1.7);
-      const t1 = Math.pow((i + 1) / BAR_COUNT, 1.7);
-      const lo = Math.floor(t0 * (bins - 1));
-      const hi = Math.max(lo + 1, Math.floor(t1 * (bins - 1)));
-      let s = 0;
-      for (let b = lo; b < hi; b++) s += dataArray[b];
-      return s / (hi - lo);
+      const span = bins * 0.75;
+      const t0 = Math.pow(i / BAR_COUNT, 1.3);
+      const t1 = Math.pow((i + 1) / BAR_COUNT, 1.3);
+      const lo = Math.floor(t0 * span);
+      const hi = Math.max(lo + 1, Math.floor(t1 * span));
+      let s = 0, c = 0;
+      for (let b = lo; b < hi && b < bins; b++) { s += dataArray[b]; c++; }
+      return c ? s / c : 0;
     }
 
     function resize() {
+      // 响应式高度：手机（<768px）更矮，桌面 120px，避免遮挡控制器
+      const cssH = window.innerWidth < 768 ? 80 : 120;
       canvas.width = window.innerWidth * dpr;
-      canvas.height = 140 * dpr;
+      canvas.height = cssH * dpr;
       canvas.style.width = window.innerWidth + 'px';
-      canvas.style.height = '140px';
+      canvas.style.height = cssH + 'px';
     }
     resize();
     window.addEventListener('resize', resize);
@@ -481,71 +485,72 @@ var heo = {
           if (++nonZeroCount > 10) synthetic = false;
         }
       }
+      // 用二次贝塞尔（中点法）把控制点连成柔顺曲线
+      function curveThrough(pts) {
+        ctx.moveTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < pts.length - 1; i++) {
+          const xc = (pts[i].x + pts[i + 1].x) / 2;
+          const yc = (pts[i].y + pts[i + 1].y) / 2;
+          ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
+        }
+        const last = pts[pts.length - 1];
+        const prev = pts[pts.length - 2];
+        ctx.quadraticCurveTo(prev.x, prev.y, last.x, last.y);
+      }
+
       const now = performance.now() / 1000;
-      const gap = 3 * dpr;
-      const barW = (w - gap * (BAR_COUNT + 1)) / BAR_COUNT;
-      const maxH = h * 0.92;
+      const N = BAR_COUNT;
+      const pts = [];
+      for (let i = 0; i < N; i++) {
+        let target = 0;
+        if (playing) {
+          if (synthetic) {
+            target = (Math.sin(now * 2.2 + i * 0.30) * 0.5 + 0.5) * 120
+                   + Math.sin(now * 5 + i * 0.8) * 22 + 28;
+          } else if (analyser) {
+            target = barValue(i);
+          }
+        }
+        smoothed[i] += (target - smoothed[i]) * 0.25;   // 更柔的帧间平滑
+        // 高频增益：越靠右放大越多，让原本「不动」的右侧也起伏
+        const gain = 1 + (i / (N - 1)) * 1.1;
+        // 对比提升：把低能量段也抬起来，曲线更饱满
+        const norm = Math.pow(Math.min(255, smoothed[i] * gain) / 255, 0.6);
+        pts.push({ x: (w * i) / (N - 1), y: h - norm * (h * 0.9) });
+      }
 
-      // 横贯整条画布的彩色渐变（紫 → 粉 → 橙 → 金），呼应站点金色基调
-      const hue = ctx.createLinearGradient(0, 0, w, 0);
-      hue.addColorStop(0.00, '#7b5cff');
-      hue.addColorStop(0.45, '#ff5fa2');
-      hue.addColorStop(0.75, '#ff9f6b');
-      hue.addColorStop(1.00, '#ffd166');
-
-      // 底部一条柔光基线
+      // 柔光底部基线
       ctx.save();
-      ctx.globalAlpha = 0.45;
+      ctx.globalAlpha = 0.5;
       const base = ctx.createLinearGradient(0, 0, w, 0);
       base.addColorStop(0, 'rgba(123,92,255,0)');
-      base.addColorStop(0.5, 'rgba(255,255,255,0.35)');
+      base.addColorStop(0.5, 'rgba(255,255,255,0.30)');
       base.addColorStop(1, 'rgba(255,209,102,0)');
       ctx.fillStyle = base;
       ctx.fillRect(0, h - 2 * dpr, w, 2 * dpr);
       ctx.restore();
 
-      // 整体霓虹辉光
-      ctx.shadowColor = 'rgba(255,140,190,0.75)';
-      ctx.shadowBlur = 8 * dpr;
+      // 柔和平滑面积填充（半透明渐变，呼应金色基调）
+      ctx.beginPath();
+      ctx.moveTo(0, h);
+      curveThrough(pts);
+      ctx.lineTo(w, h);
+      ctx.closePath();
+      const fill = ctx.createLinearGradient(0, 0, 0, h);
+      fill.addColorStop(0, 'rgba(255,159,107,0.42)');
+      fill.addColorStop(0.55, 'rgba(255,95,162,0.22)');
+      fill.addColorStop(1, 'rgba(123,92,255,0.04)');
+      ctx.fillStyle = fill;
+      ctx.fill();
 
-      for (let i = 0; i < BAR_COUNT; i++) {
-        let target = 0;
-        if (playing) {
-          if (synthetic) {
-            target = (Math.sin(now * 3 + i * 0.35) * 0.5 + 0.5) * 150
-                   + Math.sin(now * 7 + i * 0.9) * 30 + 40;
-          } else if (analyser) {
-            target = barValue(i);
-          }
-        }
-        // 帧间平滑，动作更顺滑
-        smoothed[i] += (target - smoothed[i]) * 0.35;
-        const v = smoothed[i];
-        const barH = Math.max(3 * dpr, (v / 255) * maxH);
-        const x = gap + i * (barW + gap);
-        const y = h - barH;
-        const r = Math.min(barW / 2, 5 * dpr);
-
-        // 柱体：用横向彩色渐变上色
-        ctx.fillStyle = hue;
-        ctx.beginPath();
-        ctx.moveTo(x, y + r);
-        ctx.arcTo(x, y, x + r, y, r);
-        ctx.lineTo(x + barW, y);
-        ctx.arcTo(x + barW, y, x + barW, y + r, r);
-        ctx.lineTo(x + barW, y + barH);
-        ctx.lineTo(x, y + barH);
-        ctx.closePath();
-        ctx.fill();
-
-        // 顶部高光帽（关闭辉光，避免糊成一团）
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = 'rgba(255,255,255,0.92)';
-        ctx.beginPath();
-        ctx.arc(x + barW / 2, y, Math.max(1 * dpr, r * 0.7), 0, Math.PI * 2);
-        ctx.fill();
-        ctx.shadowBlur = 8 * dpr;
-      }
+      // 顶部细描边曲线（半透明白 + 极轻辉光），不画硬柱、不刺眼
+      ctx.beginPath();
+      curveThrough(pts);
+      ctx.lineWidth = 1.6 * dpr;
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+      ctx.shadowColor = 'rgba(255,160,200,0.5)';
+      ctx.shadowBlur = 4 * dpr;
+      ctx.stroke();
       ctx.shadowBlur = 0;
     }
     draw();

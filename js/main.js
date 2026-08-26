@@ -469,13 +469,21 @@ var heo = {
     // 频谱柱数量 & 帧间平滑缓冲
     const BAR_COUNT = 64;
     const smoothed = new Float32Array(BAR_COUNT);
-    // 频率映射：以画布「中心」为低频(bass，能量大)，向两侧映射到高频(treble，能量小)，
-    // 因此中间最高、向两边递减，左右对称，不再「左边一直最高」。只取前 75% 频段（丢弃空段）。
+    // 频率映射：中心 = 低频(bass，能量最大 → 最高)；
+    // 左半边 = 低频向「中低频」展开，右半边 = 低频向「中高频」展开（两边频率区间不同 → 形状不对称）。
+    // 这样保持「中间最高」但左右不再镜像对称。
     function barValue(i) {
       const bins = analyser ? analyser.frequencyBinCount : BAR_COUNT;
-      const span = Math.max(1, Math.floor(bins * 0.75));
-      const d = Math.abs(i - (BAR_COUNT - 1) / 2) / ((BAR_COUNT - 1) / 2); // 0(中心)..1(边缘)
-      const idx = Math.min(span - 1, Math.floor(Math.pow(d, 0.85) * (span - 1)));
+      const mid = (BAR_COUNT - 1) / 2;
+      let dl, span;
+      if (i <= mid) {
+        dl = (mid - i) / mid;          // 0(中心) .. 1(左边缘)
+        span = bins * 0.40;            // 左半边覆盖：bass → 中低
+      } else {
+        dl = (i - mid) / (BAR_COUNT - 1 - mid); // 0(中心) .. 1(右边缘)
+        span = bins * 0.78;            // 右半边覆盖：bass → 中高（更高），与左不同 → 不对称
+      }
+      const idx = Math.min(bins - 1, Math.max(0, Math.floor(Math.pow(dl, 0.9) * span)));
       let s = 0, c = 0;
       for (let b = Math.max(0, idx - 1); b <= Math.min(bins - 1, idx + 1); b++) { s += dataArray[b]; c++; }
       return c ? s / c : 0;
@@ -580,9 +588,13 @@ var heo = {
         let target = 0;
         if (playing) {
           if (synthetic) {
-            // 程序动画也保持「中间高、两边低」的对称山形，避免左边恒高
+            // 程序动画：中间高两边低（山形），但左右相位不同 → 不对称
+            const mid = (N - 1) / 2;
             const env = Math.cos((i / (N - 1) - 0.5) * Math.PI);
-            target = env * ((Math.sin(now * 2.5 + i * 0.15) * 0.5 + 0.5) * 110 + 20);
+            const osc = i < mid
+              ? Math.sin(now * 2.4 + i * 0.13)
+              : Math.sin(now * 3.2 + i * 0.21 + 1.7);
+            target = env * ((osc * 0.5 + 0.5) * 110 + 20);
           } else if (analyser) {
             target = barValue(i);
           }

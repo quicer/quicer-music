@@ -545,7 +545,7 @@ var heo = {
       const N = amps.length;
       const gap = 3 * dpr;
       const barW = (cw - gap * (N + 1)) / N;
-      const maxH = ch * 0.9;
+      const maxH = ch; // 不封顶，允许柱子自然长到画布边缘甚至溢出
       const minBar = 2 * dpr;
       const base = coverColor || { r: 167, g: 139, b: 250 };
       const lite = lighten(base, 0.45);
@@ -614,10 +614,10 @@ var heo = {
           }
         }
         smoothed[i] += (target - smoothed[i]) * 0.3;                 // 帧间平滑
-        // 增强对比与幅度：指数降到 0.5 + 增益 1.25，让柱子起伏更明显（封顶 1 避免削平峰值）
+        // 增强对比与幅度：指数降到 0.5 + 增益 1.25，让柱子起伏更明显
+        // 不再封顶 1，允许溢出画布自然裁切，消除「最大高度」的平顶感
         const v = Math.min(255, smoothed[i]) / 255;
-        const norm = Math.min(1, Math.pow(v, 0.5) * 1.25);
-        amps[i] = norm;
+        amps[i] = Math.pow(v, 0.5) * 1.25;
       }
       // 底部画布（向上）与顶部画布（向下）镜像渲染 → 页面顶端/底端对称
       renderBars(ctx, w, h, amps, false);

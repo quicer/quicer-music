@@ -30,6 +30,17 @@ const AUDIO_HEADERS = [
   'last-modified',
 ];
 
+// 转发时需要保留的图片响应头（用于专辑封面取色：代理封面图并加 CORS 头，
+// 使前端能用 crossOrigin='anonymous' 读取像素、提取主色，否则 canvas 会被 taint）
+const IMAGE_HEADERS = [
+  'content-type',
+  'content-length',
+  'cache-control',
+  'etag',
+  'last-modified',
+  'expires',
+];
+
 function corsHeaders() {
   return {
     'Access-Control-Allow-Origin': '*',
@@ -93,6 +104,23 @@ export default {
         return new Response(upstream.body, { status: upstream.status, headers });
       } catch (e) {
         return jsonResponse({ error: `音频代理失败: ${e.message}` }, 502);
+      }
+    }
+
+    // 图片代理（专辑封面取色用）：转发封面图并加 CORS 头
+    const imgTarget = url.searchParams.get('img');
+    if (imgTarget) {
+      try {
+        const upstream = await fetch(imgTarget, { redirect: 'follow' });
+        const headers = new Headers();
+        for (const [k, v] of upstream.headers.entries()) {
+          if (IMAGE_HEADERS.includes(k.toLowerCase())) headers.set(k, v);
+        }
+        headers.set('Access-Control-Allow-Origin', '*');
+        headers.set('Cache-Control', 'public, max-age=86400');
+        return new Response(upstream.body, { status: upstream.status, headers });
+      } catch (e) {
+        return jsonResponse({ error: `图片代理失败: ${e.message}` }, 502);
       }
     }
 

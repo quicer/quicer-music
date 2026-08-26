@@ -415,6 +415,55 @@ var heo = {
     let audioCtx = null, analyser = null, source = null, dataArray = null;
     let synthetic = false, zeroCount = 0, nonZeroCount = 0, player = null, attached = false;
 
+    // 专辑封面取色：默认兜底色（柔紫），拿到封面并解析成功后替换为专辑主色
+    let coverColor = null;        // {r,g,b}
+    let coverColorUrl = null;     // 已取色的封面地址，避免重复计算
+
+    function rgba(c, a) { return `rgba(${c.r},${c.g},${c.b},${a})`; }
+    function lighten(c, amt) {
+      return {
+        r: Math.round(c.r + (255 - c.r) * amt),
+        g: Math.round(c.g + (255 - c.g) * amt),
+        b: Math.round(c.b + (255 - c.b) * amt),
+      };
+    }
+
+    // 读取当前播放歌曲的封面地址（meting-api 返回字段为 pic）
+    function getCoverUrl() {
+      try {
+        const idx = ap.list.index;
+        const cur = ap.list.audios && ap.list.audios[idx];
+        return cur && (cur.pic || cur.cover);
+      } catch (e) { return null; }
+    }
+    // 从封面提取主色。封面图经 Worker 图片代理加 CORS 头后，才能用 crossOrigin 读取像素，
+    // 否则直接跨域加载会被 canvas taint、getImageData 抛错（此时保持兜底色）。
+    function extractCoverColor() {
+      const cover = getCoverUrl();
+      if (!cover || cover === coverColorUrl) return;
+      coverColorUrl = cover;
+      const src = musicWorkerUrl ? musicWorkerUrl + '?img=' + encodeURIComponent(cover) : cover;
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = function () {
+        try {
+          const oc = document.createElement('canvas');
+          oc.width = oc.height = 24;
+          const octx = oc.getContext('2d');
+          octx.drawImage(img, 0, 0, 24, 24);
+          const d = octx.getImageData(0, 0, 24, 24).data;
+          let r = 0, g = 0, b = 0, n = 0;
+          for (let i = 0; i < d.length; i += 4) {
+            if (d[i + 3] < 10) continue;
+            r += d[i]; g += d[i + 1]; b += d[i + 2]; n++;
+          }
+          if (n) coverColor = { r: Math.round(r / n), g: Math.round(g / n), b: Math.round(b / n) };
+        } catch (e) { /* tainted: 保持兜底色 */ }
+      };
+      img.onerror = function () { /* 加载失败: 保持兜底色 */ };
+      img.src = src;
+    }
+
     // 频谱柱状数量 & 帧间平滑缓冲，让动作更顺滑
     const BAR_COUNT = 64;
     const smoothed = new Float32Array(BAR_COUNT);
@@ -485,6 +534,7 @@ var heo = {
           if (++nonZeroCount > 10) synthetic = false;
         }
       }
+
       // 用二次贝塞尔（中点法）把控制点连成柔顺曲线
       function curveThrough(pts) {
         ctx.moveTo(pts[0].x, pts[0].y);
@@ -500,7 +550,7 @@ var heo = {
 
       const now = performance.now() / 1000;
       const N = BAR_COUNT;
-      const pts = [];
+      const amps = new Array(N);
       for (let i = 0; i < N; i++) {
         let target = 0;
         if (playing) {
@@ -512,46 +562,56 @@ var heo = {
           }
         }
         smoothed[i] += (target - smoothed[i]) * 0.25;   // 更柔的帧间平滑
-        // 高频增益：越靠右放大越多，让原本「不动」的右侧也起伏
-        const gain = 1 + (i / (N - 1)) * 1.1;
-        // 对比提升：把低能量段也抬起来，曲线更饱满
-        const norm = Math.pow(Math.min(255, smoothed[i] * gain) / 255, 0.6);
-        pts.push({ x: (w * i) / (N - 1), y: h - norm * (h * 0.9) });
+        const gain = 1 + (i / (N - 1)) * 1.1;           // 越靠右放大越多，右侧也起伏
+        const norm = Math.pow(Math.min(255, smoothed[i] * gain) / 255, 0.6); // 低能量段也抬起
+        amps[i] = norm;
       }
 
-      // 柔光底部基线
+      // 上下镜像对称：以画布中线为基线，上侧与下侧镜像起伏
+      const centerY = h / 2;
+      const halfMax = h * 0.42;
+      const upper = [], lower = [];
+      for (let i = 0; i < N; i++) {
+        const x = (w * i) / (N - 1);
+        const a = amps[i] * halfMax;
+        upper.push({ x, y: centerY - a });
+        lower.push({ x, y: centerY + a });
+      }
+
+      // 线条主色取自专辑封面；未取到时用柔紫兜底。横向渐变：主色→提亮→主色（左右对称）
+      const base = coverColor || { r: 167, g: 139, b: 250 };
+      const lite = lighten(base, 0.5);
+      const grad = ctx.createLinearGradient(0, 0, w, 0);
+      grad.addColorStop(0.0, rgba(base, 0.95));
+      grad.addColorStop(0.5, rgba(lite, 0.55));
+      grad.addColorStop(1.0, rgba(base, 0.95));
+
+      // 柔和的镜像线条（细描边 + 轻微辉光，不画硬柱）
       ctx.save();
-      ctx.globalAlpha = 0.5;
-      const base = ctx.createLinearGradient(0, 0, w, 0);
-      base.addColorStop(0, 'rgba(123,92,255,0)');
-      base.addColorStop(0.5, 'rgba(255,255,255,0.30)');
-      base.addColorStop(1, 'rgba(255,209,102,0)');
-      ctx.fillStyle = base;
-      ctx.fillRect(0, h - 2 * dpr, w, 2 * dpr);
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
+      ctx.lineWidth = 1.8 * dpr;
+      ctx.strokeStyle = grad;
+      ctx.shadowColor = rgba(base, 0.85);
+      ctx.shadowBlur = 7 * dpr;
+      ctx.beginPath();
+      curveThrough(upper);
+      ctx.stroke();
+      ctx.beginPath();
+      curveThrough(lower);
+      ctx.stroke();
       ctx.restore();
 
-      // 柔和平滑面积填充（半透明渐变，呼应金色基调）
+      // 中线极淡柔光，衬出镜像感，不喧宾夺主
+      ctx.save();
+      ctx.globalAlpha = 0.22;
+      ctx.strokeStyle = rgba(lite, 0.9);
+      ctx.lineWidth = 1 * dpr;
       ctx.beginPath();
-      ctx.moveTo(0, h);
-      curveThrough(pts);
-      ctx.lineTo(w, h);
-      ctx.closePath();
-      const fill = ctx.createLinearGradient(0, 0, 0, h);
-      fill.addColorStop(0, 'rgba(255,159,107,0.42)');
-      fill.addColorStop(0.55, 'rgba(255,95,162,0.22)');
-      fill.addColorStop(1, 'rgba(123,92,255,0.04)');
-      ctx.fillStyle = fill;
-      ctx.fill();
-
-      // 顶部细描边曲线（半透明白 + 极轻辉光），不画硬柱、不刺眼
-      ctx.beginPath();
-      curveThrough(pts);
-      ctx.lineWidth = 1.6 * dpr;
-      ctx.strokeStyle = 'rgba(255,255,255,0.55)';
-      ctx.shadowColor = 'rgba(255,160,200,0.5)';
-      ctx.shadowBlur = 4 * dpr;
+      ctx.moveTo(0, centerY);
+      ctx.lineTo(w, centerY);
       ctx.stroke();
-      ctx.shadowBlur = 0;
+      ctx.restore();
     }
     draw();
 
@@ -568,9 +628,14 @@ var heo = {
           try { ap.audio.load(); } catch (e) {}
         }
         ensureAudio(player);
+        extractCoverColor();                       // 首曲封面取主色
         player.on('play', function () {
           ensureAudio(player);
           if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+          extractCoverColor();
+        });
+        player.on('listswitch', function () {       // 切歌后重新取封面主色
+          extractCoverColor();
         });
       } else {
         setTimeout(tryAttach, 300);

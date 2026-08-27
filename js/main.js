@@ -14,7 +14,7 @@ if (typeof userType === 'undefined') {
   var userType = "playlist"; // 替换为实际的默认值
 }
 if (typeof homeUrl === 'undefined') {
-  var homeUrl = "https://quicer-workers.sryze.cc"; // 替换为你的主页地址
+  var homeUrl = "https://quicer.top"; // 替换为你的主页地址
 }
 
 // 音乐馆「真实频谱」音频代理 Worker 地址（对应仓库内 music-worker.js）。

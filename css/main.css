@@ -839,3 +839,54 @@ body .aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-icon.apla
     font-size: 13px;
   }
 }
+
+/* 备案信息（右下角固定，玻璃质感） */
+.heo-beian {
+  position: fixed;
+  bottom: 18px;
+  right: 18px;
+  z-index: 1000;
+}
+
+.heo-beian-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  font-size: 12px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.85);
+  text-decoration: none;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease;
+}
+
+.heo-beian-link:hover {
+  background: rgba(255, 255, 255, 0.24);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.heo-beian-icon {
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  display: block;
+}
+
+@media screen and (max-width: 768px) {
+  .heo-beian {
+    bottom: 12px;
+    right: 12px;
+  }
+  .heo-beian-link {
+    font-size: 11px;
+    padding: 6px 11px;
+  }
+}
+

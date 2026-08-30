@@ -17,6 +17,15 @@
   <meta name="theme-color" content="#000000">
 </head>
 <body>
+<!-- 加载动画：打开页面立即显示，播放器就绪后由下方脚本淡出 -->
+<div id="qui-loading" aria-hidden="true">
+  <div class="qui-loading-inner">
+    <div class="qui-eq">
+      <span></span><span></span><span></span><span></span><span></span>
+    </div>
+    <div class="qui-loading-text">QuiMusic</div>
+  </div>
+</div>
 <div id="heoMusic-page">
 </div>
 <canvas id="heo-visualizer-top"></canvas>
@@ -30,5 +39,25 @@
 <script src="./config.js"></script>
 <script src="./js/APlayer.min.js"></script>
 <script async data-pjax src="./js/main.js"></script>
+<script>
+// 加载动画：当播放器 DOM（#heoMusic-page .aplayer）被插入时淡出遮罩
+(function () {
+  function hideLoading() {
+    var el = document.getElementById('qui-loading');
+    if (el) el.classList.add('qui-hidden');
+  }
+  var observer = new MutationObserver(function () {
+    if (document.querySelector('#heoMusic-page .aplayer')) {
+      hideLoading();
+      observer.disconnect();
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  // 兜底：无论加载是否成功，最多 8 秒后隐藏，避免遮罩卡死
+  window.addEventListener('load', function () {
+    setTimeout(hideLoading, 8000);
+  });
+})();
+</script>
 </body>
 </html>

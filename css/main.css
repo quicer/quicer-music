@@ -936,6 +936,8 @@ body .aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-icon.apla
   height: 14px;
   border-radius: 3px;
   display: block;
+  fill: #fff;
+  flex: none;
 }
 
 @media screen and (max-width: 768px) {

@@ -32,7 +32,7 @@
 <canvas id="heo-visualizer"></canvas>
 <div class="heo-beian">
   <a class="heo-beian-link" href="https://icp.gov.moe/?keyword=20252084" target="_blank" rel="noopener">
-    <img class="heo-beian-icon" src="https://fjh8gsbyo9u00beb.public.blob.vercel-storage.com/3znWpwp-gWP5slCchQmw5GGehEh6HM7SDpq47A.webp" alt="" loading="lazy" onerror="this.remove()" />
+    <svg class="heo-beian-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v9.56A4 4 0 1 0 14 16V7h4V3h-6z"/></svg>
     <span>萌ICP备20252084号</span>
   </a>
 </div>
@@ -53,10 +53,8 @@
     }
   });
   observer.observe(document.body, { childList: true, subtree: true });
-  // 兜底：无论加载是否成功，最多 8 秒后隐藏，避免遮罩卡死
-  window.addEventListener('load', function () {
-    setTimeout(hideLoading, 8000);
-  });
+  // 兜底：脚本执行后最多 8 秒隐藏，不依赖 window.load（避免被卡住的外链资源拖住）
+  setTimeout(hideLoading, 8000);
 })();
 </script>
 </body>

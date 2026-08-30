@@ -900,7 +900,7 @@ body .aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-icon.apla
   .qui-eq span { animation: none; transform: scaleY(0.6); }
 }
 
-
+.heo-beian {
   position: fixed;
   bottom: 18px;
   right: 18px;

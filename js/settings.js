@@ -7,19 +7,26 @@
  *    3) 渲染设置面板的账号区，绑定全部开关/分段的交互
  *    4) 登录 QuiID 后把设置推到云端 / 从云端拉回，实现跨设备同步
  *
+ *  ★ 同步时机（2026-10-01 改）：
+ *    改设置时**不再**打接口，只写 localStorage 并标一个 pending 标记；
+ *    真正的推送发生在「离开 QuiMusic」的时候 —— visibilitychange→hidden
+ *    （切标签 / 切后台 / 关页面，移动端最可靠）与 pagehide（真正卸载）。
+ *    这样连续拨动开关也只会产生 0 次请求，离开时最多 1 次。
+ *    详见下面的 pushOnExit()。
+ *
  *  本模块**不碰播放器**。它只负责“知道设置是什么”并广播变更，
  *  真正的应用逻辑在 main.js 里监听 quimusic:settings 事件完成。
  *
  *  对外接口：window.QuiMusicSettings
  *    all()            取全部设置的副本
  *    get(key)         取单项
- *    set(key, value)  改单项（自动持久化 + 广播 + 云同步）
+ *    set(key, value)  改单项（自动持久化 + 广播；云端同步推迟到离开页面时）
  *    patch(obj)       批量改
  *    onChange(fn)     监听变更
  *    ready(fn)        设置就绪后回调（首次读盘完成）
  *    user()           当前 QuiID 用户（未登录为 null）
  *    login() / logout()
- *    syncState()      'local' | 'syncing' | 'synced' | 'offline'
+ *    syncState()      'local' | 'dirty' | 'syncing' | 'synced' | 'offline'
  * ============================================================ */
 (function (global) {
   'use strict';
@@ -30,8 +37,6 @@
   var QUIID_APP_ID = 'music';
   // SDK 地址：可被 config.js 的 quiidSdkUrl 覆盖
   var DEFAULT_SDK_URL = 'https://id.quicer.top/quiid.js';
-  // 设置推送防抖：拖动音量时不要每动一下就打一次接口
-  var PUSH_DEBOUNCE_MS = 900;
 
   /* ------------------------------------------------------------
    *  设置项定义
@@ -59,8 +64,18 @@
   // QuiID 相关
   var sdkLoading = null;
   var currentUser = null;
-  var syncState = 'local';   // local | syncing | synced | offline
-  var pushTimer = null;
+  var syncState = 'local';   // local | dirty | syncing | synced | offline
+  /**
+   * 本地是否有「已经改了、但还没成功推到云端」的设置。
+   * 它有两个作用，缺一不可：
+   *   ① 去重 —— 没改过就不发请求，切几次标签页也不会产生多余的推送；
+   *   ② 防丢 —— 万一离开时的推送失败（离线、被系统杀进程），
+   *      下次打开拉云端时凭它判断「本地更新」，不会被云端旧值覆盖回去。
+   * 必须持久化到 localStorage，否则进程被杀后这个标记就跟着没了。
+   */
+  var pending = false;
+  /** 最近一次「设置被改动」的时间戳。用来判断一次推送期间有没有又发生新改动 */
+  var lastChangeAt = 0;
 
   /* ------------------------------------------------------------
    *  类型校正：本地存储和云端数据都不可信，读进来一律过一遍
@@ -105,14 +120,18 @@
 
   function loadLocal() {
     var raw = null;
+    var pend = false;
     try {
       var s = localStorage.getItem(STORE_KEY);
       if (s) {
         var parsed = JSON.parse(s);
-        // 兼容两种格式：早期直接存设置，后来包了一层 {settings, updatedAt}
+        // 兼容两种格式：早期直接存设置，后来包了一层 {settings, updatedAt, pending}
         raw = (parsed && parsed.settings) ? parsed.settings : parsed;
+        // 只有「外层包装」这一种形态才带 pending；早期裸设置对象读出来自然是 false
+        pend = !!(parsed && parsed.pending);
       }
     } catch (e) { /* 存储不可用或内容损坏 → 用默认值，不影响播放 */ }
+    pending = pend;
     return sanitize(raw);
   }
 
@@ -120,9 +139,18 @@
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify({
         settings: state,
-        updatedAt: Date.now()
+        updatedAt: Date.now(),
+        pending: pending
       }));
     } catch (e) { /* 隐私模式/配额满：忽略，本次会话仍可用 */ }
+  }
+
+  /** 改 pending 标记并落盘（值没变就不写，避免无谓的 localStorage 写入） */
+  function setPending(v) {
+    v = !!v;
+    if (pending === v) return;
+    pending = v;
+    saveLocal();
   }
 
   /* ------------------------------------------------------------
@@ -238,6 +266,14 @@
     SDK.api('/api/prefs?app_id=' + encodeURIComponent(QUIID_APP_ID), { token: SDK.token() })
       .then(function (d) {
         var cloud = d && d.data && d.data.settings ? d.data.settings : null;
+
+        // ★ 本地还有「已改、但上次离开时没推上去」的设置（pending）—— 以**本地**为准并补推。
+        //   这是「只在离开时同步」这个策略的必备兜底：离开时的推送可能失败
+        //   （离线、移动端被系统直接杀进程），若照旧让云端覆盖本地，
+        //   用户就会看到「改了设置 → 切后台 → 再打开全还原了」。
+        //   注意这不改变正常语义：pending 只在「确有未同步改动」时为真。
+        if (pending) { pushToCloud(); return; }
+
         if (cloud) {
           var merged = sanitize(cloud);
           var changed = {};
@@ -250,7 +286,7 @@
           emit(changed);
         } else {
           // 云端还没有这份偏好 → 用本地值播种
-          pushToCloud(true);
+          pushToCloud();
         }
       })
       .catch(function (e) {
@@ -259,39 +295,117 @@
       });
   }
 
-  /** 推送本地设置到云端（默认防抖，播种时立即） */
-  function pushToCloud(immediate) {
-    var SDK = global.QuiID;
-    if (!SDK || !currentUser) return;
-    if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
+  /**
+   * 离开页面时的推送通道：带 keepalive 的原生 fetch。
+   *
+   * 为什么不能直接用 SDK.api()：它内部就是一句普通 `fetch`，页面一卸载浏览器会**取消在途请求**，
+   * 而这恰恰是唯一需要它的时刻。keepalive 让请求脱离页面生命周期、继续跑完再销毁。
+   * 请求形状与 SDK.api('/api/prefs') 保持一致（同一 URL、同一 Authorization 头、同一 body）。
+   * 这里只发 POST：QuiID 侧 POST 与 PUT 语义一致（见下面降级注释），少一个方法就少一种 CORS 变数。
+   */
+  function keepalivePrefsPush(SDK, payload) {
+    var base = '';
+    var token = '';
+    try { base = (typeof SDK.apiBase === 'function') ? SDK.apiBase() : ''; } catch (e) {}
+    try { token = SDK.token(); } catch (e) {}
+    if (!base || !token) return Promise.reject(new Error('缺少 apiBase 或令牌'));
 
-    function doPush() {
-      setSyncState('syncing');
-      var payload = {
-        app_id: QUIID_APP_ID,
-        data: { settings: state, updatedAt: Date.now() }
-      };
+    return fetch(base + '/api/prefs', {
+      method: 'POST',
+      keepalive: true,          // ★ 关键：请求不随页面销毁而取消
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      },
+      body: JSON.stringify(payload)
+    }).then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r;
+    });
+  }
+
+  /**
+   * 推送当前设置到云端。
+   *
+   * @param {object} [opts]
+   * @param {boolean} [opts.keepalive] 离开页面时用（见 keepalivePrefsPush）
+   * @returns {Promise<boolean>} 是否成功。**永远 resolve**，调用方不需要 catch。
+   */
+  function pushToCloud(opts) {
+    opts = opts || {};
+    var SDK = global.QuiID;
+    if (!SDK || !currentUser) return Promise.resolve(false);
+
+    var payload = {
+      app_id: QUIID_APP_ID,
+      data: { settings: state, updatedAt: Date.now() }
+    };
+    // 记下这一份数据的「版本」，用于判断推送期间用户有没有又改过设置
+    var snapshotAt = payload.data.updatedAt;
+
+    setSyncState('syncing');
+
+    var req;
+    if (opts.keepalive) {
+      req = keepalivePrefsPush(SDK, payload);
+    } else {
       // 先 PUT，失败再降级 POST。
       // ★ 为什么要降级：PUT 会触发 CORS 预检，一旦服务端 Allow-Methods 里漏了 PUT，
       //   浏览器**直接阻断请求**（服务端零日志，控制台只有一句 CORS 报错），
       //   表现就是「云端不可达，已存本机」但登录一切正常 —— 极难排查。
       //   POST 是通行度更高的方法，通常必在 Allow-Methods 里；QuiID 侧两者语义一致。
-      SDK.api('/api/prefs', { method: 'PUT', token: SDK.token(), body: payload })
+      req = SDK.api('/api/prefs', { method: 'PUT', token: SDK.token(), body: payload })
         .catch(function (e) {
           console.warn('[settings] PUT 保存失败，改用 POST 重试', e);
           return SDK.api('/api/prefs', { method: 'POST', token: SDK.token(), body: payload });
-        })
-        .then(function () {
-          setSyncState('synced');
-        })
-        .catch(function (e) {
-          console.warn('[settings] 保存到云端失败', e);
-          setSyncState('offline');
         });
     }
 
-    if (immediate) doPush();
-    else pushTimer = setTimeout(doPush, PUSH_DEBOUNCE_MS);
+    return req.then(function () {
+      // 只有「推完之后没有再改过」才能清 pending ——
+      // 否则会把推送期间产生的新改动一并误标成「已同步」。
+      if (lastChangeAt <= snapshotAt) setPending(false);
+      setSyncState(pending ? 'dirty' : 'synced');
+      return true;
+    }).catch(function (e) {
+      console.warn('[settings] 保存到云端失败', e);
+      setPending(true);        // 保住本地改动，避免下次打开被云端旧值冲掉
+      setSyncState('offline');
+      return false;
+    });
+  }
+
+  /**
+   * 设置被改动时调用：只落本地 + 打待同步标记，**不发任何请求**。
+   *
+   * 未登录时直接返回，即 pending 保持为假 —— 这是刻意维持原有语义：
+   * 游客期的设置不参与同步，登录后仍然以云端为准，不会被游客期的本地值反向覆盖。
+   */
+  function markDirty() {
+    if (!currentUser) return;
+    lastChangeAt = Date.now();
+    setPending(true);
+    setSyncState('dirty');
+  }
+
+  /**
+   * ★ 「离开 QuiMusic」= 把设置同步到云端的唯一时机。
+   *   · visibilitychange → hidden：切标签 / 切后台 / 关页面都会**先**触发，
+   *     而且此刻页面还活着 —— 移动端「切后台后被系统杀掉」往往只有这一枪机会。
+   *   · pagehide：真正卸载（关页面、前进后退、被 bfcache 收走）时的兜底。
+   * 两个事件都挂，靠 pending 去重：第一次推成功后 pending 被清掉，
+   * 紧接着的第二个事件自然不会重复发请求。
+   */
+  function pushOnExit() {
+    if (!currentUser || !pending || !global.QuiID) return;
+    pushToCloud({ keepalive: true });
+  }
+
+  function bindExitSync() {
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'hidden') pushOnExit();
+    });
+    global.addEventListener('pagehide', pushOnExit);
   }
 
   /* ============================================================
@@ -320,6 +434,9 @@
 
     var syncLabel = {
       local: '设置仅保存在本机',
+      // 同步时机改成「离开页面时」，所以改完设置后必须如实告诉用户「还没上云」，
+      // 否则面板一直显示「已同步」会让人以为已经跨设备生效了。
+      dirty: '改动已存本机，退出时同步',
       syncing: '正在同步…',
       synced: '设置已同步到账号',
       offline: '云端不可达，已存本机'
@@ -472,7 +589,7 @@
       state[key] = v;
       saveLocal();
       emit((function () { var o = {}; o[key] = v; return o; })());
-      pushToCloud();
+      markDirty();                           // ★ 只打待同步标记，推送推迟到离开页面时
     },
 
     patch: function (obj) {
@@ -487,7 +604,7 @@
       if (!dirty) return;
       saveLocal();
       emit(changed);
-      pushToCloud();
+      markDirty();                           // ★ 同上：不在这里发请求
     },
 
     onChange: function (fn) { if (typeof fn === 'function') listeners.push(fn); },
@@ -510,11 +627,20 @@
       });
     },
 
-    /** 退出登录：必须先把本地清理干净，再通知刷新 UI */
+    /** 退出登录：先补推一次设置，再清理本地、通知刷新 UI */
     logout: function () {
-      // ★ 必须 await：SDK 的清理可能是异步的，不等它做完就读存储会读到残留会话
       var SDK = global.QuiID;
-      Promise.resolve(SDK && SDK.logout ? SDK.logout() : null)
+      // ★ 为什么登出也要推：同步时机已改成「只在离开时」，登出同样是一次离开；
+      //   而且必须赶在 currentUser 被清空**之前**推 —— 清完就没身份了。
+      //   这里用普通通道即可（页面还在，不需要 keepalive）。
+      //   推失败也不阻塞登出，pending 会保留下来，下次登录时自动补推。
+      var flush = (currentUser && SDK) ? pushToCloud() : Promise.resolve(false);
+      return flush
+        .catch(function () {})
+        .then(function () {
+          // ★ 必须 await：SDK 的清理可能是异步的，不等它做完就读存储会读到残留会话
+          return Promise.resolve(SDK && SDK.logout ? SDK.logout() : null);
+        })
         .catch(function () {})
         .then(function () {
           try { localStorage.removeItem('quiid_session'); } catch (e) {}
@@ -528,9 +654,9 @@
         });
     },
 
-    /** 手动触发一次同步（面板里不需要，留给控制台调试） */
+    /** 手动推送一次（面板里不需要，留给控制台调试） */
     syncNow: function () {
-      if (currentUser) pushToCloud(true);
+      return currentUser ? pushToCloud() : Promise.resolve(false);
     },
 
     // 面板控制（供外部按需打开）
@@ -545,6 +671,7 @@
 
   function boot() {
     bindPanel();
+    bindExitSync();        // ★ 离开页面时同步设置（本模块唯一的主动推送时机）
     renderControls();
     renderAccount();
     flushReady();          // 先让播放器用本地设置跑起来，不等网络

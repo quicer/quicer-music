@@ -28,7 +28,6 @@
 </div>
 <div id="heoMusic-page">
 </div>
-<canvas id="heo-visualizer-top"></canvas>
 <canvas id="heo-visualizer"></canvas>
 <div class="heo-beian">
   <a class="heo-beian-link" href="https://icp.gov.moe/?keyword=20252084" target="_blank" rel="noopener">
@@ -60,26 +59,39 @@
     <div class="heo-group">
       <div class="heo-group-title">显示</div>
 
-      <label class="heo-row">
-        <span class="heo-row-label">音乐可视化<em>跟随音乐起伏的频谱</em></span>
+      <label class="heo-row" id="heo-row-visualizer">
+        <span class="heo-row-label">
+          音乐可视化
+          <em class="heo-row-desc">跟随音乐起伏的频谱</em>
+          <em class="heo-row-lock">需登录 QuiID 后可用</em>
+        </span>
         <input type="checkbox" data-setting="visualizer">
         <i class="heo-switch" aria-hidden="true"></i>
       </label>
 
       <label class="heo-row">
-        <span class="heo-row-label">歌词<em>滚动显示歌词面板</em></span>
+        <span class="heo-row-label">
+          歌词
+          <em class="heo-row-desc">滚动显示歌词面板</em>
+        </span>
         <input type="checkbox" data-setting="lyrics">
         <i class="heo-switch" aria-hidden="true"></i>
       </label>
 
       <label class="heo-row">
-        <span class="heo-row-label">封面背景<em>用当前封面做模糊背景</em></span>
+        <span class="heo-row-label">
+          封面背景
+          <em class="heo-row-desc">用当前封面做模糊背景</em>
+        </span>
         <input type="checkbox" data-setting="coverBg">
         <i class="heo-switch" aria-hidden="true"></i>
       </label>
 
       <label class="heo-row">
-        <span class="heo-row-label">封面取色<em>频谱颜色跟随封面主色</em></span>
+        <span class="heo-row-label">
+          封面取色
+          <em class="heo-row-desc">频谱颜色跟随封面主色</em>
+        </span>
         <input type="checkbox" data-setting="coverColor">
         <i class="heo-switch" aria-hidden="true"></i>
       </label>
@@ -89,19 +101,28 @@
       <div class="heo-group-title">播放</div>
 
       <label class="heo-row">
-        <span class="heo-row-label">音量记忆<em>下次打开沿用上次音量</em></span>
+        <span class="heo-row-label">
+          音量记忆
+          <em class="heo-row-desc">下次打开沿用上次音量</em>
+        </span>
         <input type="checkbox" data-setting="volumeMemory">
         <i class="heo-switch" aria-hidden="true"></i>
       </label>
 
       <label class="heo-row">
-        <span class="heo-row-label">自动播放<em>打开页面即开始播放</em></span>
+        <span class="heo-row-label">
+          自动播放
+          <em class="heo-row-desc">打开页面即开始播放</em>
+        </span>
         <input type="checkbox" data-setting="autoplay">
         <i class="heo-switch" aria-hidden="true"></i>
       </label>
 
       <div class="heo-row heo-row--col">
-        <span class="heo-row-label">播放模式<em>随机 / 顺序 / 单曲循环</em></span>
+        <span class="heo-row-label">
+          播放模式
+          <em class="heo-row-desc">随机 / 顺序 / 单曲循环</em>
+        </span>
         <div class="heo-seg" data-seg="order" role="group" aria-label="播放模式">
           <button type="button" data-value="random">随机</button>
           <button type="button" data-value="list">顺序</button>
@@ -111,6 +132,21 @@
     </div>
   </div>
 </div>
+
+<!-- 通用提示弹窗（目前用于「设备性能较差」）。DOM 静态写死，逻辑见 main.js 的 showQuiModal -->
+<div class="qui-modal" id="qui-modal" role="alertdialog" aria-modal="true"
+     aria-labelledby="qui-modal-text" aria-hidden="true">
+  <div class="qui-modal-box">
+    <p class="qui-modal-text" id="qui-modal-text"></p>
+    <div class="qui-modal-actions">
+      <button type="button" class="heo-btn-ghost" id="qui-modal-cancel">取消</button>
+      <button type="button" class="heo-btn-primary" id="qui-modal-ok">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- 歌曲列表遮罩：手机端点它收起列表。由 main.js 控制 .is-open -->
+<div class="qui-list-backdrop" id="qui-list-backdrop" aria-hidden="true"></div>
 
 <script src="./config.js"></script>
 <script src="./js/APlayer.min.js"></script>

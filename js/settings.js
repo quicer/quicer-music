@@ -213,9 +213,9 @@
         .catch(function () { return null; })
         .then(function (user) {
           currentUser = user || null;
-          renderAccount();
+          notifySessionChanged();
           if (currentUser) pullFromCloud();
-          else { setSyncState('local'); renderAccount(); }
+          else setSyncState('local');
         });
 
       // SDK 内部的登录态变化（如别处退出）也要跟着走
@@ -224,8 +224,8 @@
         var was = currentUser ? currentUser.uid : null;
         var now = next ? next.uid : null;
         currentUser = next;
-        if (now && now !== was) { renderAccount(); pullFromCloud(); }
-        else if (!now && was) { renderAccount(); setSyncState('local'); }
+        if (now && now !== was) { notifySessionChanged(); pullFromCloud(); }
+        else if (!now && was) { notifySessionChanged(); setSyncState('local'); }
       });
     });
   }
@@ -298,8 +298,23 @@
    *  设置面板渲染与交互
    * ============================================================ */
 
+  /**
+   * 登录态发生变化的统一出口。
+   * 为什么不只依赖 setSyncState 的广播：它内部有「值相同就不广播」的短路
+   * （如 syncState 本来就是 'local' 时再登出一次就不发事件），
+   * 而登录态本身是必须被 main.js 感知的 —— 否则退出登录后音乐可视化不会停。
+   */
+  function notifySessionChanged() {
+    renderAccount();
+    renderControls();
+    emit({});
+  }
+
   /** 账号区：根据登录态渲染三种形态 */
   function renderAccount() {
+    // 登录态一变，除了账号区，还要同步「音乐可视化」那一行的可用性
+    renderVisualizerLock();
+
     var box = document.getElementById('heo-account');
     if (!box) return;
 
@@ -338,6 +353,23 @@
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  /**
+   * 「音乐可视化」需要登录 QuiID 才可用。
+   * 未登录时把这一行置灰、禁用 checkbox，并显示「需登录 QuiID 后可用」。
+   *
+   * 注意：这里**只改控件可用性，不改设置值**。用户之前的开关偏好原样保留在
+   * state.visualizer 里，重新登录后立即恢复，不会因为登出一次就被重置成关闭。
+   * 真正的「不启动绘制」判断在 main.js 的 applyVisualizer 里。
+   */
+  function renderVisualizerLock() {
+    var input = document.querySelector('[data-setting="visualizer"]');
+    if (!input) return;
+    var row = input.closest ? input.closest('.heo-row') : null;
+    var locked = !currentUser;
+    input.disabled = locked;
+    if (row) row.classList.toggle('is-locked', locked);
   }
 
   /** 把当前设置回填到面板控件上 */
@@ -468,6 +500,8 @@
     // ---- 账号 ----
     user: function () { return currentUser; },
     syncState: function () { return syncState; },
+    /** 是否已登录 QuiID。音乐可视化等功能以此为准入门槛 */
+    isLoggedIn: function () { return !!currentUser; },
 
     login: function () {
       loadSdk().then(function (SDK) {
@@ -486,8 +520,7 @@
           try { localStorage.removeItem('quiid_session'); } catch (e) {}
           currentUser = null;
           setSyncState('local');
-          renderAccount();
-          renderControls();
+          notifySessionChanged();
           // 通知其它持有登录态的组件（另起事件名，避免与 SDK 的变更事件形成自激循环）
           try {
             global.dispatchEvent(new CustomEvent('quiid:session-ended'));

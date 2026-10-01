@@ -77,6 +77,61 @@ function quiSetting(key, fallback) {
   return fallback;
 }
 
+/* ------------------------------------------------------------
+ *  通用弹窗：目前只有「设备性能较差」这一处用，所以做成通用小工具，
+ *  以后要加别的提示直接复用（DOM 见 index.html 的 #qui-modal）。
+ * ---------------------------------------------------------- */
+function showQuiModal(opts) {
+  var box = document.getElementById('qui-modal');
+  if (!box) return;
+  var textEl = document.getElementById('qui-modal-text');
+  var okBtn = document.getElementById('qui-modal-ok');
+  var cancelBtn = document.getElementById('qui-modal-cancel');
+  if (textEl) textEl.textContent = opts.text || '';
+  if (okBtn) okBtn.textContent = opts.okText || '确定';
+
+  // 每次打开都重新绑定（用 onclick 覆盖，避免多次调用叠加监听）
+  if (okBtn) okBtn.onclick = function () { hideQuiModal(); if (opts.onOk) opts.onOk(); };
+  if (cancelBtn) {
+    if (opts.cancelText) {
+      cancelBtn.textContent = opts.cancelText;
+      cancelBtn.style.display = '';
+      cancelBtn.onclick = function () { hideQuiModal(); if (opts.onCancel) opts.onCancel(); };
+    } else {
+      cancelBtn.style.display = 'none';
+    }
+  }
+  box.classList.add('is-open');
+  box.setAttribute('aria-hidden', 'false');
+  // 点遮罩空白处等同「取消」
+  box.onclick = function (ev) {
+    if (ev.target === box) { hideQuiModal(); if (opts.onCancel) opts.onCancel(); }
+  };
+}
+
+function hideQuiModal() {
+  var box = document.getElementById('qui-modal');
+  if (!box) return;
+  box.classList.remove('is-open');
+  box.setAttribute('aria-hidden', 'true');
+}
+
+/**
+ * 「设备性能较差」提示。文案固定，按钮只做两件事：
+ *   · 关闭可视化 —— 直接写设置（走 settings.js，会一并本地持久化 + 云同步）
+ *   · 继续使用   —— 本次会话不再提示（sessionStorage 标记在调用方打）
+ */
+function showPerfModal() {
+  showQuiModal({
+    text: '您的设备性能较差，建议关闭音乐可视化',
+    okText: '关闭可视化',
+    cancelText: '继续使用',
+    onOk: function () {
+      if (QS && typeof QS.set === 'function') QS.set('visualizer', false);
+    }
+  });
+}
+
 // 音量：开启「音量记忆」时沿用上次保存的值，否则用固定默认值
 var volume = quiSetting('volume', 0.8);
 
@@ -435,10 +490,22 @@ var heo = {
     if (!pl) return;
 
     // ① 歌词面板：复用 APlayer 自带的 aplayer-lrc-hide 类
-    //    （APlayer.css 里已有 `.aplayer-lrc.aplayer-lrc-hide { display: none }`）
+    //    ★★★ 2026-10-01 修复「设置里关掉歌词，歌词却照常显示」：
+    //    这个类以前加在了 `.aplayer` 上，但 APlayer.css 的规则是
+    //        .aplayer .aplayer-lrc.aplayer-lrc-hide { display: none }
+    //    —— 类必须加在 **`.aplayer-lrc` 元素本身**上。加错层级不会报任何错，
+    //    只是选择器永远匹配不上，表现就是「开关点了没反应」，极其隐蔽。
+    //    APlayer 自己的 ap.lrc.hide() 也是往 lrcWrap（即 .aplayer-lrc）上加这个类。
     try {
+      const wantLyrics = quiSetting('lyrics', true);
+      const lrcEl = document.querySelector('#heoMusic-page .aplayer-lrc');
+      if (lrcEl) lrcEl.classList.toggle('aplayer-lrc-hide', !wantLyrics);
+      // 同时给页面根节点打标记：CSS 靠它把「没有歌词时」的其余内容居中
+      const page = document.getElementById('heoMusic-page');
+      if (page) page.classList.toggle('qui-no-lyrics', !wantLyrics);
+      // 清掉旧实现可能残留在 .aplayer 上的同名类，避免与新标记互相干扰
       const root = document.querySelector('.aplayer');
-      if (root) root.classList.toggle('aplayer-lrc-hide', !quiSetting('lyrics', true));
+      if (root) root.classList.remove('aplayer-lrc-hide');
     } catch (e) {}
 
     // ② 音量：第二个参数 persist 固定传 false —— 记忆统一交给本项目的设置系统，
@@ -471,19 +538,18 @@ var heo = {
     }
   },
 
-  // 新增方法：音乐可视化（Web Audio 频谱；跨域音频无数据时自动降级为程序动画）
+  // 音乐可视化（Web Audio 频谱；跨域音频无数据时自动降级为程序动画）
+  // 2026-10-01 变更：
+  //   · 只保留**底部**一条频谱（顶部那条已移除）
+  //   · **必须登录 QuiID** 才会启动
+  //   · 自动检测帧率，卡顿时弹窗建议关闭
   initVisualizer: function() {
     const page = document.getElementById('heoMusic-page');
-    const canvas = document.getElementById('heo-visualizer');        // 底部画布
-    const topCanvas = document.getElementById('heo-visualizer-top'); // 顶部画布（与底部镜像对称）
-    if (!canvas || !topCanvas) return;
-    // 两条画布都移入 #heoMusic-page，使其与模糊背景同一层叠上下文（显示在背景之上、不挡控件）
-    if (page) {
-      if (canvas.parentElement !== page) page.insertBefore(canvas, page.firstChild);
-      if (topCanvas.parentElement !== page) page.insertBefore(topCanvas, page.firstChild);
-    }
+    const canvas = document.getElementById('heo-visualizer');   // 唯一的频谱画布（页面底部）
+    if (!canvas) return;
+    // 画布移入 #heoMusic-page，使其与模糊背景同一层叠上下文（显示在背景之上、不挡控件）
+    if (page && canvas.parentElement !== page) page.insertBefore(canvas, page.firstChild);
     const ctx = canvas.getContext('2d');
-    const topCtx = topCanvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
 
     // 专辑封面背景层：显示当前歌曲封面（纯背景图，无需 CORS，跨域也能显示），适度模糊
@@ -611,15 +677,13 @@ var heo = {
     }
 
     function resize() {
-      // 响应式高度：手机（<768px）更矮，桌面 120px，避免遮挡
+      // 响应式高度：手机（<768px）更矮，桌面 220px，避免遮挡
       const cssW = window.innerWidth;
       const cssH = cssW < 768 ? 140 : 220;
-      [canvas, topCanvas].forEach(function (cv) {
-        cv.width = cssW * dpr;
-        cv.height = cssH * dpr;
-        cv.style.width = cssW + 'px';
-        cv.style.height = cssH + 'px';
-      });
+      canvas.width = cssW * dpr;
+      canvas.height = cssH * dpr;
+      canvas.style.width = cssW + 'px';
+      canvas.style.height = cssH + 'px';
     }
     resize();
     window.addEventListener('resize', resize);
@@ -644,11 +708,16 @@ var heo = {
       } catch (e) {
         console.warn('[visualizer] 音频上下文初始化失败', e);
         audioCtx = null;
+        // ★ 必须同时降级为程序动画：draw() 里 target 的取值是
+        //   `if (synthetic) {...} else if (analyser) {...}` ——
+        //   两者都为假时 target 恒为 0，柱子只剩最小值，画面上就是一条几乎看不见的虚线，
+        //   看起来像「可视化坏了」而不是「降级了」。
+        synthetic = true;
       }
     }
 
-    // 画一组胶囊柱状：底部画布从底向上长(flip=false)，顶部画布从顶向下长(flip=true) → 页面上下对称
-    function renderBars(c, cw, ch, amps, flip) {
+    // 画一组胶囊柱状：从画布底部向上长
+    function renderBars(c, cw, ch, amps) {
       const N = amps.length;
       const gap = 3 * dpr;
       const barW = (cw - gap * (N + 1)) / N;
@@ -668,7 +737,7 @@ var heo = {
       for (let i = 0; i < N; i++) {
         const x = gap + i * (barW + gap);
         const bh = Math.max(minBar, amps[i] * maxH);
-        const y = flip ? 0 : ch - bh;          // 顶部画布从 y=0 向下长，底部从底向上
+        const y = ch - bh;                     // 从底部向上长
         const r = Math.min(barW / 2, bh / 2);  // 胶囊两端圆角
         c.beginPath();
         c.moveTo(x + r, y);
@@ -684,15 +753,67 @@ var heo = {
 
     // 可视化是否在跑。关闭时不再排下一帧，也不做任何绘制 —— 这是这个开关省电的关键，
     // 仅靠 CSS 隐藏 canvas 的话 rAF 仍会每秒跑 60 次。
-    let visRunning = false;
+    // ★ 初值必须是 null（而非 false）：applyVisualizer 用「值相等就 return」防重入，
+    //   若初值是 false，那么首次调用时如果算出来也是「不该显示」（如未登录），
+    //   就会直接 return，body.qui-hide-visualizer 永远加不上，DOM 状态和应用状态不一致。
+    //   用 null 作「尚未应用过」的哨兵，保证第一次一定走完整个流程。
+    let visRunning = null;
+
+    /* ---- 性能监测：可视化在跑但帧率长期过低 → 弹窗建议关闭 ----
+     * 为什么不猜设备型号：UA / hardwareConcurrency / deviceMemory 全都不可靠
+     * （iOS Safari 压根不提供 deviceMemory，很多安卓机也谎报核心数）。
+     * 「实际掉帧」才是用户真正看到的现象，所以直接量 rAF 的真实帧间隔。 */
+    const PERF_MIN_FPS = 24;    // 平均帧率低于此值判定为卡顿
+    const PERF_WINDOW = 90;     // 采样窗口（帧数），约 1.5s @60fps
+    const PERF_WARMUP = 45;     // 预热帧：首屏布局、音频解码、封面加载必然掉帧，不能拿去判定
+    const PERF_WARN_KEY = 'quimusic_perf_warned';
+    let perfAccum = 0, perfFrames = 0, perfWarmup = 0, perfDone = false;
+    let lastFrameTs = 0;
+
+    function perfWarnedThisSession() {
+      try { return sessionStorage.getItem(PERF_WARN_KEY) === '1'; } catch (e) { return false; }
+    }
+    function markPerfWarned() {
+      try { sessionStorage.setItem(PERF_WARN_KEY, '1'); } catch (e) {}
+    }
+
+    /**
+     * 采样一帧。只在「可视化正在跑 + 正在播放」时统计 ——
+     * 暂停时的空转帧几乎没有绘制成本，拿它算帧率会得出「性能很好」的错误结论。
+     */
+    function samplePerf(dt, playing) {
+      if (perfDone || !playing) return;
+      if (perfWarmup < PERF_WARMUP) { perfWarmup++; return; }
+      perfAccum += dt;
+      perfFrames++;
+      if (perfFrames < PERF_WINDOW) return;
+      const avgFps = 1000 / (perfAccum / perfFrames);
+      perfAccum = 0; perfFrames = 0;
+      // 只判一次：达标就收工（不再持续采样，省掉长期开销）；
+      // 不达标就弹窗并收工（避免用户选择「继续使用」后被反复打扰）。
+      if (avgFps >= PERF_MIN_FPS) {
+        perfDone = true;
+        return;
+      }
+      perfDone = true;
+      // 二次确认：可视化此刻仍是开着的才提示；已经关掉就不打扰
+      if (!visRunning) return;
+      if (perfWarnedThisSession()) return;
+      markPerfWarned();
+      showPerfModal();
+      console.log('[visualizer] 平均帧率 ' + avgFps.toFixed(1) + ' fps，已提示关闭可视化');
+    }
 
     function draw() {
       if (!visRunning) return;
       requestAnimationFrame(draw);
+      const ts = performance.now();
+      const dt = lastFrameTs ? ts - lastFrameTs : 16.7;
+      lastFrameTs = ts;
       const w = canvas.width, h = canvas.height;
       ctx.clearRect(0, 0, w, h);
-      topCtx.clearRect(0, 0, topCanvas.width, topCanvas.height);
       const playing = player && !player.paused;
+      samplePerf(dt, playing);
       if (analyser && playing) {
         analyser.getByteFrequencyData(dataArray);
         let sum = 0;
@@ -730,25 +851,37 @@ var heo = {
         const v = Math.min(255, smoothed[i]) / 255;
         amps[i] = Math.pow(v, 0.9) * VIS_GAIN;
       }
-      // 底部画布（向上）与顶部画布（向下）镜像渲染 → 页面顶端/底端对称
-      renderBars(ctx, w, h, amps, false);
-      renderBars(topCtx, topCanvas.width, topCanvas.height, amps, true);
+      // 只渲染底部这一条频谱
+      renderBars(ctx, w, h, amps);
     }
 
     /**
      * 应用「音乐可视化」开关。
      * 用状态比较防重入：draw() 内部会自我排帧，重复调用会跑出两条循环。
+     *
+     * ★ 2026-10-01：可视化**必须登录 QuiID** 才可用。
+     *   这里把「用户开关」与「登录态」分开判断：
+     *     want = 用户设置里的开关值（登录后仍会沿用他的选择，不会因为一次退出就被重置）
+     *     on   = want && 已登录
+     *   未登录时不会去动用户的设置值，只是不启动绘制；界面上对应开关会被置灰
+     *   （见 settings.js 的 renderVisualizerLock / index.html 的 .heo-row-lock）。
      */
-    function applyVisualizer(on) {
-      on = !!on;
+    function isVisAllowed() {
+      return !!(QS && typeof QS.isLoggedIn === 'function' && QS.isLoggedIn());
+    }
+
+    function applyVisualizer(want) {
+      want = !!want;
+      const on = want && isVisAllowed();
       if (on === visRunning) return;
       visRunning = on;
       document.body.classList.toggle('qui-hide-visualizer', !on);
       if (on) {
+        // 每次重新启动都重置采样状态：用户可能刚换了设备环境/刚插上电源
+        perfAccum = 0; perfFrames = 0; perfWarmup = 0; perfDone = false; lastFrameTs = 0;
         draw();                                   // 启动 rAF 循环
       } else {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        topCtx.clearRect(0, 0, topCanvas.width, topCanvas.height);
       }
     }
     applyVisualizer(quiSetting('visualizer', true));
@@ -809,11 +942,125 @@ var heo = {
     };
   },
 
+  /* ------------------------------------------------------------
+   *  歌单增强：① 歌单内搜索  ② 手机端点空白处收起列表
+   *  ------------------------------------------------------------
+   *  两件事都必须等 Meting.js 把 `.aplayer-list` 生成出来之后才能挂，
+   *  所以统一走 MutationObserver 等待，不依赖任何固定延时。
+   * ---------------------------------------------------------- */
+  initPlaylistExtras: function() {
+    const backdrop = document.getElementById('qui-list-backdrop');
+    const mqMobile = window.matchMedia('(max-width: 767px)');
+
+    function whenListReady(cb) {
+      if (document.querySelector('#heoMusic-page .aplayer-list')) { cb(); return; }
+      const ob = new MutationObserver(function () {
+        if (document.querySelector('#heoMusic-page .aplayer-list')) { ob.disconnect(); cb(); }
+      });
+      ob.observe(document.body, { childList: true, subtree: true });
+    }
+
+    whenListReady(function () {
+      const list = document.querySelector('#heoMusic-page .aplayer-list');
+      const ol = list && list.querySelector('ol');
+      if (!list || !ol) return;
+
+      /* ================= ① 歌单内搜索 ================= */
+      const box = document.createElement('div');
+      box.className = 'qui-search';
+      box.innerHTML =
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>' +
+        '<input type="search" class="qui-search-input" placeholder="搜索歌曲 / 歌手" ' +
+        'aria-label="搜索歌单内歌曲" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search">' +
+        '<button type="button" class="qui-search-clear" aria-label="清空搜索" tabindex="-1">' +
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg></button>';
+      list.insertBefore(box, list.firstChild);
+
+      // 无结果时的空状态（默认 display:none，靠 .aplayer-list.is-empty 显示）
+      const empty = document.createElement('div');
+      empty.className = 'qui-search-empty';
+      empty.textContent = '没有找到匹配的歌曲';
+      list.insertBefore(empty, box.nextSibling);
+
+      const input = box.querySelector('.qui-search-input');
+      const items = Array.prototype.slice.call(ol.children);
+      // 预先拍一份「曲名 + 歌手」的可搜索文本：每次输入都去查 DOM 会很浪费
+      const haystack = items.map(function (li) {
+        const t = li.querySelector('.aplayer-list-title');
+        const a = li.querySelector('.aplayer-list-author');
+        return ((t ? t.textContent : '') + ' ' + (a ? a.textContent : '')).toLowerCase();
+      });
+
+      function applyFilter() {
+        const q = input.value.trim().toLowerCase();
+        box.classList.toggle('has-value', q.length > 0);
+        let hit = 0;
+        for (let i = 0; i < items.length; i++) {
+          const ok = !q || haystack[i].indexOf(q) >= 0;
+          items[i].classList.toggle('qui-song-hidden', !ok);
+          if (ok) hit++;
+        }
+        list.classList.toggle('is-empty', hit === 0);
+      }
+
+      input.addEventListener('input', applyFilter);
+      /**
+       * ★ 必须把键盘事件挡在输入框里。
+       *  main.js 底部有一组绑在 document 上的全局快捷键（空格=播放/暂停、方向键=切歌/音量），
+       *  它们走冒泡阶段，输入框里打的字会一路冒到 document ——
+       *  结果就是在搜索框里按空格不仅打不出空格，还会把歌切了。
+       *  stopPropagation 只影响冒泡，不影响输入框自身的默认行为，所以打字完全正常。
+       */
+      ['keydown', 'keyup', 'keypress'].forEach(function (ev) {
+        input.addEventListener(ev, function (e) {
+          e.stopPropagation();
+          if (e.type === 'keydown' && e.key === 'Enter') input.blur();
+        });
+      });
+      // 点搜索框本身不要冒泡出去（面板的「点外部关闭」用的是 document 级监听）
+      box.addEventListener('click', function (e) { e.stopPropagation(); });
+      box.querySelector('.qui-search-clear').addEventListener('click', function (e) {
+        e.stopPropagation();
+        input.value = '';
+        applyFilter();
+        input.focus();
+      });
+
+      /* ================= ② 手机端：点空白收起列表 ================= */
+      if (!backdrop) return;
+
+      function syncBackdrop() {
+        // 只在手机端（抽屉形态）且抽屉确实展开时显示遮罩
+        const open = mqMobile.matches && !list.classList.contains('aplayer-list-hide');
+        backdrop.classList.toggle('is-open', open);
+      }
+
+      // 抽屉的开合完全归 APlayer 管（菜单按钮 / ap.list.show|hide / 断点变化），
+      // 所以这里只监听它的 class 变化来同步遮罩，不自己再存一份状态 ——
+      // 存两份状态迟早会不同步。
+      new MutationObserver(syncBackdrop).observe(list, {
+        attributes: true, attributeFilter: ['class']
+      });
+      if (mqMobile.addEventListener) mqMobile.addEventListener('change', syncBackdrop);
+      else if (mqMobile.addListener) mqMobile.addListener(syncBackdrop);
+
+      backdrop.addEventListener('click', function () {
+        // 用 APlayer 官方 API 收起：它会同步内部状态并广播 listhide 事件
+        if (typeof ap !== 'undefined' && ap && ap.list) ap.list.hide();
+        else list.classList.add('aplayer-list-hide');
+        syncBackdrop();
+      });
+
+      syncBackdrop();
+    });
+  },
+
   // 初始化所有事件
   init: function() {
     this.getCustomPlayList();
     this.addHomeButton();
     this.initVisualizer();
+    this.initPlaylistExtras();
     this.initScrollEvents();
     this.applyPlayerSettings();
 

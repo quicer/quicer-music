@@ -13,7 +13,7 @@
  *    · #heo-cover-bg 靠 .show 类淡入/淡出 —— 由 main.js 添加/移除
  *    · body.qui-hide-visualizer 隐藏频谱画布 —— 由 settings.js/main.js 切换
  *    · .aplayer-lrc-hide 的 display:none 定义在 APlayer.css，main.js 只负责加类
- *    · #heo-visualizer / #heo-visualizer-top 会被 main.js 移入 #heoMusic-page
+ *    · #heo-visualizer 会被 main.js 移入 #heoMusic-page（顶部那条已移除）
  *    · 设置面板显隐开关是 .is-open 类（settings.js 控制）
  *    · 设置面板里 [data-setting] / [data-seg][data-value] 是 settings.js 的事件委托锚点
  *    · .heo-row 必须包住 input+checkbox 与 .heo-switch（CSS 用 ~ 兄弟选择器驱动开关）
@@ -190,7 +190,10 @@ body .aplayer-notice {
   );
 }
 
-/* 底部频谱画布 */
+/* 频谱画布（只用底部这一条；顶部那条已移除，见 main.js 的 initVisualizer）
+ * body.qui-hide-visualizer 时由这条规则隐藏。
+ * 注意：这里只管显示。真正省电的是 main.js 停掉 rAF 循环 ——
+ * 只靠 CSS 隐藏的话，绘制仍会以每秒 60 帧空转。 */
 #heoMusic-page #heo-visualizer {
   position: fixed;
   left: 0;
@@ -203,17 +206,8 @@ body .aplayer-notice {
   mask-image: linear-gradient(to top, #000 86%, transparent);
 }
 
-/* 顶部频谱画布：与底部镜像对称 */
-#heoMusic-page #heo-visualizer-top {
-  position: fixed;
-  left: 0;
-  top: 0;
-  width: 100%;
-  height: 200px;
-  z-index: 1;
-  pointer-events: none;
-  -webkit-mask-image: linear-gradient(to bottom, #000 86%, transparent);
-  mask-image: linear-gradient(to bottom, #000 86%, transparent);
+body.qui-hide-visualizer #heo-visualizer {
+  display: none !important;
 }
 
 
@@ -367,6 +361,29 @@ body .aplayer-notice {
   max-width: 45%;
 }
 
+/* ---- 关闭歌词后，右栏只剩曲名 → 让它居中，否则大片空白 + 文字吊在顶上很难看 ----
+ *  qui-no-lyrics 由 main.js 的 applyPlayerSettings 打/摘（与 lyrics 设置同步）。
+ *  这里只做「没有歌词时」的排布，不需要关心歌词本身怎么隐藏。 */
+#heoMusic-page.qui-no-lyrics .aplayer-info {
+  justify-content: center;   /* 纵向居中 */
+  align-items: center;       /* 横向居中 */
+  text-align: center;
+}
+
+#heoMusic-page.qui-no-lyrics .aplayer-music {
+  flex-wrap: wrap;
+  /* 两个方向都写：桌面是 row（靠 justify-content 横排居中），
+     ≤1023 时 .aplayer-music 变成 column（要靠 align-items 才能横向居中）。 */
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+/* 居中后两侧都是空余空间，原来的 45% 截断反而会把长歌名切得很早 */
+#heoMusic-page.qui-no-lyrics .aplayer-music .aplayer-author {
+  max-width: 100%;
+}
+
 
 /* ============================================================
  *  ⑤ 封面
@@ -424,6 +441,10 @@ body .aplayer-notice {
   /* ★ flex-basis 用 0 而非 auto：auto 会以内容高度（7000+px）为基准，
      在高度受限的父级里 shrink 不回来；0 则直接把剩余空间全给它。 */
   flex: 1 1 0;
+  /* ★ 纵向 flex：搜索框（flex:none）+ 滚动列表（flex:1）。
+     不加这条的话搜索框会和 ol 挤在同一行，ol 的 height:100% 还会把搜索框顶出去。 */
+  display: flex;
+  flex-direction: column;
   width: auto;
   min-width: 0;
   min-height: 0;
@@ -446,12 +467,131 @@ body .aplayer-notice {
   z-index: 2;
 }
 
+/* ---- 歌单内搜索框 ---- *
+ * DOM 由 main.js 注入到 .aplayer-list 内部、ol 之前（Meting.js 生成的 ol 不好直接改）。 */
+#heoMusic-page .qui-search {
+  flex: none;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  padding: 0 10px;
+  height: 36px;
+  background: var(--qm-surface-3);
+  border: 1px solid var(--qm-line-1);
+  border-radius: var(--qm-r-sm);
+  transition: border-color var(--qm-dur) var(--qm-ease),
+              background var(--qm-dur) var(--qm-ease);
+}
+
+#heoMusic-page .qui-search:focus-within {
+  background: var(--qm-surface-hi);
+  border-color: var(--qm-line-3);
+}
+
+#heoMusic-page .qui-search svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  fill: var(--qm-text-3);
+}
+
+#heoMusic-page .qui-search input {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--qm-text);
+  background: transparent;
+  border: 0;
+  outline: 0;
+  /* iOS 上字号小于 16px 会在聚焦时自动放大整个页面 */
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+@media screen and (max-width: 767px) {
+  #heoMusic-page .qui-search input { font-size: 16px; }
+}
+
+#heoMusic-page .qui-search input::placeholder {
+  color: var(--qm-text-3);
+}
+
+/* 去掉 Safari/Chrome 给 type=search 加的原生清除按钮，用我们自己的 */
+#heoMusic-page .qui-search input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+#heoMusic-page .qui-search-clear {
+  flex: none;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: var(--qm-text-3);
+  background: var(--qm-surface-hi);
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+#heoMusic-page .qui-search.has-value .qui-search-clear {
+  display: flex;
+}
+
+#heoMusic-page .qui-search-clear:hover {
+  color: var(--qm-text);
+}
+
+#heoMusic-page .qui-search-clear svg {
+  width: 11px;
+  height: 11px;
+  fill: currentColor;
+}
+
+/* 被搜索过滤掉的曲目：只隐藏，**不删 DOM** ——
+ * 删了会打乱 APlayer 内部按 li 顺序记的索引，点歌就点错歌了。 */
+#heoMusic-page ol > li.qui-song-hidden {
+  display: none !important;
+}
+
+/* 搜索无结果时的空状态（由 main.js 注入，默认隐藏） */
+#heoMusic-page .qui-search-empty {
+  display: none;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  font-size: 12.5px;
+  color: var(--qm-text-3);
+  text-align: center;
+}
+
+#heoMusic-page .aplayer-list.is-empty .qui-search-empty {
+  display: flex;
+}
+
+#heoMusic-page .aplayer-list.is-empty ol {
+  display: none;
+}
+
 #heoMusic-page .aplayer-list ol {
   margin: 0;
   padding: 0;
   padding-right: 4px;   /* 给滚动条留位，避免压住作者名 */
   list-style: none;
-  height: 100%;
+  /* ★ 从 height:100% 改成 flex:1 1 0：父级现在是 flex 纵列，还有搜索框占了高度，
+     继续写 100% 会把整条列表顶出卡片。 */
+  flex: 1 1 0;
+  min-height: 0;
+  height: auto;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -681,8 +821,22 @@ body .aplayer-notice {
  * ============================================================ */
 #heoMusic-page .aplayer-controller {
   position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
+  /* ★★★ 居中只能用 `left/right:0 + margin:auto`，**绝对不能用 `left:50% + transform:translateX(-50%)`**
+   *  （2026-10-01 真实故障：进度条完全拖不动）
+   *
+   *  根因：APlayer 计算「进度条左边界」用的是 util.getElementViewLeft()，
+   *  它的实现是**沿 offsetParent 链累加 offsetLeft** —— 这是一套完全无视 CSS transform 的
+   *  老式布局算法。用 transform 居中时，视觉位置左移了半个条宽，但 offsetLeft 链算出来的
+   *  仍是未左移的值，于是：
+   *      算出左边界 = 真实左边界 + 半个条宽（≈568px）
+   *      拖动比例 r = (clientX - 算出左边界) / 条宽
+   *  整条进度条被映射到 r ∈ [0, 0.48]，左半边全被 clamp 成 0、右半边到不了 → 表现为「拖不动」。
+   *  改用 margin:auto 居中后 offsetLeft 链算出的值 = 真实值（误差仅 1px 边框），拖动即恢复正常。
+   *
+   *  ⚠️ 后续任何「把控制条居中 / 平移」的改动都必须避开 transform，
+   *     否则这个 bug 会原样复现，而且非常难查（APlayer 无任何报错）。 */
+  left: 0;
+  right: 0;
   bottom: 20px;
   /* ★★ APlayer.css 里 .aplayer-controller 是 `display:flex`（横排），
      导致进度条与按钮行并排、按钮被挤到右半边（实测 .aplayer-time 的 x=772）。
@@ -692,7 +846,7 @@ body .aplayer-notice {
   gap: 0;
   width: min(calc(var(--qm-page-max) - 64px), calc(100vw - 40px));
   max-width: none;
-  margin: 0;
+  margin: 0 auto;   /* 横向居中靠它，配合上面的 left/right:0 */
   padding: 14px 20px 12px;
   background: var(--qm-surface-2);
   border: 1px solid var(--qm-line-2);
@@ -709,9 +863,14 @@ body .aplayer-notice {
   /* APlayer.css 是 `margin:0 0 0 5px; padding:4px 0; flex:1`：
      在纵向容器里 flex:1 会纵向吃掉剩余高度，把按钮行顶出去，必须清掉。 */
   flex: none;
-  margin: 0 0 8px;
-  padding: 2px 0;
+  /* ★ 拖动热区加大到 24px 高（原来只有 4px 进度条 + 4px padding = 8px）。
+     手指在手机上一排 8px 的细线根本按不准，这是「拖不动」的第二层原因 ——
+     即使拖动算法正确，8px 的命中区也几乎点不到。
+     用负 margin 抵消上下各 8px，保证进度条的**视觉位置与刻度行高完全不变**。 */
+  margin: -8px 0 0;
+  padding: 10px 0;
   cursor: pointer;
+  touch-action: none;   /* 手机上拖动时不触发页面滚动 */
 }
 
 #heoMusic-page .aplayer-controller .aplayer-bar {
@@ -1359,6 +1518,104 @@ body > .heo-home-btn {
   background: #fff;
 }
 
+/* ---- 「音乐可视化」需登录 QuiID：未登录时置灰并显示提示 ---- */
+.heo-row.is-locked {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.heo-row.is-locked .heo-row-desc {
+  display: none;
+}
+
+/* 提示文字默认不占位，只在锁定时出现 */
+.heo-row-lock {
+  display: none;
+  font-size: 11.5px;
+  font-style: normal;
+  font-weight: 400;
+  color: #f0b866;
+}
+
+.heo-row.is-locked .heo-row-lock {
+  display: block;
+}
+
+.heo-row.is-locked .heo-switch {
+  cursor: not-allowed;
+}
+
+
+/* ============================================================
+ *  ⑩-b 通用提示弹窗（目前用于「设备性能较差」提示）
+ *  显隐靠 .is-open；DOM 见 index.html 的 #qui-modal
+ * ============================================================ */
+.qui-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(6, 6, 10, 0.6);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.22s var(--qm-ease), visibility 0.22s var(--qm-ease);
+}
+
+.qui-modal.is-open {
+  opacity: 1;
+  visibility: visible;
+}
+
+.qui-modal-box {
+  width: min(360px, 100%);
+  padding: 22px 20px 16px;
+  text-align: center;
+  background: var(--qm-surface-2);
+  border: 1px solid var(--qm-line-2);
+  border-radius: var(--qm-r-lg);
+  box-shadow: var(--qm-shadow-lg);
+  -webkit-backdrop-filter: var(--qm-blur);
+  backdrop-filter: var(--qm-blur);
+  transform: translateY(10px) scale(0.97);
+  transition: transform 0.26s var(--qm-ease);
+}
+
+.qui-modal.is-open .qui-modal-box {
+  transform: none;
+}
+
+.qui-modal-text {
+  margin: 0 0 18px;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--qm-text);
+}
+
+.qui-modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.qui-modal-actions > button {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+
+/* ============================================================
+ *  ⑩-c 歌曲列表遮罩（仅手机端）：点它收起底部抽屉
+ *  由 main.js 按 .aplayer-list 的折叠状态切换 .is-open
+ * ============================================================ */
+.qui-list-backdrop {
+  display: none;
+}
+
 
 /* ============================================================
  *  ⑪ 加载动画
@@ -1503,6 +1760,16 @@ body > .heo-home-btn {
     gap: 2px;
   }
 
+  /* 关闭歌词后整组居中（单列布局下两行都按内容高度，再整体居中） */
+  #heoMusic-page.qui-no-lyrics .aplayer {
+    grid-template-rows: auto auto;
+    align-content: center;
+  }
+
+  #heoMusic-page.qui-no-lyrics .aplayer-music {
+    align-items: center;
+  }
+
   #heoMusic-page .aplayer-music .aplayer-title {
     font-size: 18px;
   }
@@ -1559,6 +1826,8 @@ body > .heo-home-btn {
   :root {
     --qm-pad-top: 72px;
     --qm-pad-bottom: 156px;
+    /* 抽屉高度单独抽成变量：遮罩层要靠它算「抽屉上方还剩多少」，写死会两边不同步 */
+    --qm-sheet-h: min(58dvh, 440px);
   }
 
   body #rightside {
@@ -1596,9 +1865,10 @@ body > .heo-home-btn {
     bottom: var(--qm-sheet-bottom);
     z-index: 60;
     flex: none;
-    height: min(58dvh, 440px);
+    height: var(--qm-sheet-h);
     max-height: none !important;
-    padding: 12px;
+    /* 顶部留 18px：让开上面那条把手（top:7px + 高 4px），搜索框不会被它压住 */
+    padding: 18px 12px 12px;
     border-bottom: 0;
     border-radius: var(--qm-r-lg) var(--qm-r-lg) 0 0;
     box-shadow: 0 -20px 52px -20px rgba(0, 0, 0, 0.85);
@@ -1630,7 +1900,49 @@ body > .heo-home-btn {
   }
 
   #heoMusic-page .aplayer-list ol {
-    padding-top: 10px;
+    /* 顶部间距交给上面的搜索框提供，这里不再叠加 */
+    padding-top: 0;
+  }
+
+  /* ---- 抽屉遮罩：点它收起列表 ----
+     只盖住抽屉**上方**那块区域，底部 104px 留给控制条 —— 这样边翻歌单边暂停/切歌都不受影响，
+     比整屏全盖更符合「看歌单」这个场景的实际操作习惯。
+     z-index 55：低于抽屉的 60，高于播放器内容的 2。 */
+  .qui-list-backdrop {
+    display: block;
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: calc(var(--qm-sheet-bottom) + var(--qm-sheet-h) + 10px);
+    z-index: 55;
+    background: rgba(6, 6, 10, 0.42);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.28s var(--qm-ease), visibility 0.28s var(--qm-ease);
+  }
+
+  .qui-list-backdrop.is-open {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  /* ---- 关闭歌词后的居中 ----
+     单列布局下两行都是内容高度、整组居中，否则封面贴顶、曲名孤零零飘在中间。 */
+  #heoMusic-page.qui-no-lyrics .aplayer {
+    grid-template-rows: auto auto;
+    align-content: center;
+    gap: 20px;
+  }
+
+  #heoMusic-page.qui-no-lyrics .aplayer-pic {
+    align-self: center;
+  }
+
+  #heoMusic-page.qui-no-lyrics .aplayer-music .aplayer-title {
+    font-size: 20px;
   }
 
   /* 只留「上一首 / 播放 / 下一首 + 菜单 + 歌词」，
@@ -1752,14 +2064,6 @@ body > .heo-home-btn {
 /* ============================================================
  *  ⑬ 降级与生效状态
  * ============================================================ */
-
-/* 关闭「音乐可视化」：隐藏上下两条频谱画布。
- * 注意：这里只管显示。真正省电的是 main.js 停掉 rAF 循环 ——
- * 只靠 CSS 隐藏的话，绘制仍会以每秒 60 帧空转。 */
-body.qui-hide-visualizer #heo-visualizer,
-body.qui-hide-visualizer #heo-visualizer-top {
-  display: none !important;
-}
 
 /* 「封面背景」关闭时，main.js 只摘掉 #heo-cover-bg 的 .show 类即可 ——
    上面 `#heo-cover-bg { opacity: 0 }` + `.show { opacity: 1 }` 已经带 0.6s 过渡。

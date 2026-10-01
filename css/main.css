@@ -1,109 +1,162 @@
 @charset "UTF-8";
 
+/* ============================================================
+ *  QuiMusic · 音乐馆样式表
+ *
+ *  分层结构（从上到下）：
+ *    ① 设计令牌      ② 基底与重置     ③ 背景层
+ *    ④ 播放器布局    ⑤ 封面          ⑥ 曲目列表
+ *    ⑦ 歌词          ⑧ 控制条        ⑨ 悬浮控件
+ *    ⑩ 设置面板      ⑪ 加载动画      ⑫ 响应式      ⑬ 降级
+ *
+ *  ★ 结构性契约（重构时不得改动，改了下面对应的 JS 就会失效）：
+ *    · #heo-cover-bg 靠 .show 类淡入/淡出 —— 由 main.js 添加/移除
+ *    · body.qui-hide-visualizer 隐藏频谱画布 —— 由 settings.js/main.js 切换
+ *    · .aplayer-lrc-hide 的 display:none 定义在 APlayer.css，main.js 只负责加类
+ *    · #heo-visualizer / #heo-visualizer-top 会被 main.js 移入 #heoMusic-page
+ *    · 设置面板显隐开关是 .is-open 类（settings.js 控制）
+ *    · 设置面板里 [data-setting] / [data-seg][data-value] 是 settings.js 的事件委托锚点
+ *    · .heo-row 必须包住 input+checkbox 与 .heo-switch（CSS 用 ~ 兄弟选择器驱动开关）
+ * ============================================================ */
+
+
+/* ============================================================
+ *  ① 设计令牌
+ *  全部视觉数值集中在这里，改主题只改这一段。
+ * ============================================================ */
 :root {
-  --heo-white: #fff;
-  --heo-white-op: rgba(255, 255, 255, 0.2);
-  --heo-black: #000;
-  --heo-black-op: rgba(0, 0, 0, 0.2);
-  --heo-none: #00000000;
-  --heo-gray: #999999;
-  --heo-gray-op: #9999992b;
-  --heo-vip: #e5a80d;
-  --heo-main: var(--heo-theme);
-  --heo-main-op: var(--heo-theme-op);
-  --heo-main-op-deep: var(--heo-theme-op-deep);
-  --heo-main-none: var(--heo-theme-none);
-  --heo-shadow-theme: 0 8px 12px -3px var(--heo-theme-op);
-  --heo-shadow-blackdeep: 0 2px 16px -3px rgba(0, 0, 0, .15);
-  --heo-shadow-main: 0 8px 12px -3px var(--heo-main-op);
-  --heo-shadow-blue: 0 8px 12px -3px rgba(40, 109, 234, .20);
-  --heo-shadow-white: 0 8px 12px -3px rgba(255, 255, 255, .20);
-  --heo-shadow-black: 0 0 12px 4px rgba(0, 0, 0, .05);
-  --heo-shadow-yellow: 0px 38px 77px -26px rgba(255, 201, 62, .12);
-  --heo-shadow-red: 0 8px 12px -3px #ee7d7936;
-  --heo-shadow-green: 0 8px 12px -3px #87ee7936;
-  --heo-logo-color: linear-gradient(215deg, #4584ff 0%, #cf0db9 100%);
-  --heo-snackbar-time: 5s;
+  /* 表面：玻璃卡片的不透明度分三档，越靠上的层级越亮 */
+  --qm-bg:          #0a0a0e;
+  --qm-surface-1:   rgba(22, 22, 30, 0.55);
+  --qm-surface-2:   rgba(30, 30, 40, 0.62);
+  --qm-surface-3:   rgba(255, 255, 255, 0.06);
+  --qm-surface-hi:  rgba(255, 255, 255, 0.10);
+
+  /* 描边 */
+  --qm-line-1:      rgba(255, 255, 255, 0.08);
+  --qm-line-2:      rgba(255, 255, 255, 0.14);
+  --qm-line-3:      rgba(255, 255, 255, 0.24);
+
+  /* 文字：三级灰阶，保证深色底上都可读 */
+  --qm-text:        #f4f5f8;
+  --qm-text-2:      rgba(244, 245, 248, 0.64);
+  --qm-text-3:      rgba(244, 245, 248, 0.38);
+
+  /* 强调色：固定值而非跟随封面取色。
+     理由：封面主色可能接近黑色，用在中性深底上会「消失」。
+     跟随封面的表达交给背景层（模糊封面）与频谱画布去做。 */
+  --qm-accent:      #7aa2ff;
+  --qm-accent-soft: rgba(122, 162, 255, 0.18);
+
+  /* 毛玻璃 */
+  --qm-blur:        blur(24px) saturate(1.5);
+  --qm-blur-sm:     blur(14px) saturate(1.3);
+
+  /* 圆角 */
+  --qm-r-sm:        10px;
+  --qm-r-md:        16px;
+  --qm-r-lg:        24px;
+  --qm-r-pill:      999px;
+
+  /* 阴影 */
+  --qm-shadow-lg:   0 24px 60px -20px rgba(0, 0, 0, 0.75);
+  --qm-shadow-md:   0 12px 32px -14px rgba(0, 0, 0, 0.65);
+  --qm-shadow-sm:   0 6px 18px -8px rgba(0, 0, 0, 0.55);
+
+  /* 动效曲线与时长 */
+  --qm-ease:        cubic-bezier(0.22, 0.61, 0.36, 1);
+  --qm-dur:         0.26s;
+
+  /* 布局尺寸 */
+  --qm-page-max:    1200px;
+  /* 封面宽度跟随视口高度：矮屏上封面若还是 336px，列表会被挤到只剩两三行。
+     上下限保证既不会小到看不清，也不会大到把列表吃掉。 */
+  --qm-cover-w:     clamp(200px, 36vh, 336px);
+  --qm-gap:         44px;
+  --qm-pad-top:     92px;    /* 给右上角工具条留位 */
+  --qm-pad-bottom:  148px;   /* 给底部控制条留位 */
+  /* 手机端歌曲列表抽屉的底边位置：停在控制条上方，避免遮住播放按钮 */
+  --qm-sheet-bottom: 104px;
 }
 
-#page {
-  border: 0;
-  box-shadow: none !important;
-  padding: 0 !important;
-  background: transparent !important;
+/* 兼容层：保留主题原有的变量名，避免 APlayer.css 里引用不到而回退成黑色。
+ * 注意 --heo-theme 由 APlayer 从前端歌单接口拿到主色后内联注入，这里只给兜底。 */
+:root {
+  --heo-white:    #fff;
+  --heo-white-op: rgba(255, 255, 255, 0.2);
+  --heo-black:    #000;
+  --heo-black-op: rgba(0, 0, 0, 0.2);
+  --heo-gray:     #999;
+  --heo-theme:    var(--qm-accent);
+}
+
+
+/* ============================================================
+ *  ② 基底与重置
+ * ============================================================ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
 }
 
 body {
-  background: rgb(13, 13, 13);
-  position: relative;
+  margin: 0;
+  background: var(--qm-bg);
+  color: var(--qm-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+               "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  /* 播放器是「一屏应用」形态：页面本身不滚动，
+     内部各自滚动的区域（列表、歌词）自己去滚。 */
   overflow: hidden;
 }
 
-#heoMusic-page .aplayer{
-  display: flex;
-  flex-direction: row-reverse;
-  background: rgba(0, 0, 0, 0);
-  border: none;
-  box-shadow: none;
-  justify-content: space-between;
-}
+/* 宿主主题（Hexo/Aether 等）注入的无关元素全部让位 */
 #page {
   border: 0;
   box-shadow: none !important;
   padding: 0 !important;
   background: transparent !important;
 }
-#music_bg {
+
+body #music_bg,
+body #web_bg {
+  display: none !important;
+}
+
+body #footer,
+body #nav-music {
   display: none;
-  position: fixed;
-  z-index: -999;
-  width: 200%;
-  height: 200%;
-  top: -50%;
-  left: -50%;
-  background-position: 0 0;
-  rotate: 0;
-  background-size: 40%;
-  transition: 0.6s;
-  background-image: url(/img/cover.webp);
 }
 
-#music_bg::before {
-  content: '';
-  transform: translateZ(0);
-  background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(200px);
-  -webkit-backdrop-filter: blur(200px);
-  transform: translateZ(0);
-  position: fixed;
-  z-index: -998;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
+/* 隐藏 APlayer 自带的最小化开关：本布局是全屏播放器，没有收起形态 */
+body .aplayer-miniswitcher {
+  display: none;
 }
 
-body #music_bg{
-  display: block;
+/* 提示条（如「暂无歌词」）统一玻璃化 */
+body .aplayer-notice {
+  background: var(--qm-surface-2);
+  border: 1px solid var(--qm-line-2);
+  border-radius: var(--qm-r-pill);
+  color: var(--qm-text);
+  -webkit-backdrop-filter: var(--qm-blur-sm);
+  backdrop-filter: var(--qm-blur-sm);
 }
 
-body {
-  background: rgb(13, 13, 13);
-}
 
-#heoMusic-page {
-  max-width: calc(1200px - 160px);
-  margin: auto;
-  margin-top: 60px;
-}
+/* ============================================================
+ *  ③ 背景层
+ * ============================================================ */
 
-/* 音乐可视化画布：固定在底部，置于播放器之下，顶部渐隐 */
-#heoMusic-page {
-  position: relative;
-  z-index: 2;
-}
-
-/* 专辑封面背景层：显示当前歌曲封面，适度模糊 + 暗化遮罩，保证内容可读 */
+/* 封面背景：整屏模糊 + 压暗，让前景内容永远可读。
+ * 由 main.js 通过增删 .show 类做 0.6s 淡入淡出。 */
 #heo-cover-bg {
   position: fixed;
   inset: 0;
@@ -111,850 +164,747 @@ body {
   background-position: center;
   background-size: cover;
   background-repeat: no-repeat;
-  filter: blur(20px) brightness(0.5) saturate(1.15);
-  transform: scale(1.12); /* 放大以遮住模糊边缘 */
+  filter: blur(28px) brightness(0.42) saturate(1.2);
+  transform: scale(1.15);          /* 放大，遮住模糊后露出的透明边缘 */
   opacity: 0;
-  transition: opacity .6s ease, background-image .6s ease;
+  transition: opacity 0.6s var(--qm-ease);
+  pointer-events: none;
 }
-#heo-cover-bg.show { opacity: 1; }
+
+#heo-cover-bg.show {
+  opacity: 1;
+}
+
+/* 在模糊封面之上再压一层纵向渐变：
+ * 上暗（衬托工具条）→ 中透（露出封面）→ 下暗（衬托控制条） */
 #heo-cover-bg::after {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, rgba(0,0,0,.28), rgba(0,0,0,.45));
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.55) 0%,
+    rgba(0, 0, 0, 0.18) 32%,
+    rgba(0, 0, 0, 0.28) 68%,
+    rgba(0, 0, 0, 0.62) 100%
+  );
 }
-/* 隐藏原默认模糊背景，避免与封面背景叠加导致过糊 */
-body #music_bg, body #web_bg { display: none !important; }
 
-/* 音乐可视化画布：固定在底部，置于模糊背景之上、播放器内容之下 */
+/* 底部频谱画布 */
 #heoMusic-page #heo-visualizer {
   position: fixed;
   left: 0;
   bottom: 0;
   width: 100%;
-  height: 220px;
+  height: 200px;
   z-index: 1;
   pointer-events: none;
-  -webkit-mask-image: linear-gradient(to top, #000 88%, transparent);
-  mask-image: linear-gradient(to top, #000 88%, transparent);
-}
-/* 手机端画布更矮，避免遮挡控制器 */
-@media (max-width: 768px) {
-  #heoMusic-page #heo-visualizer { height: 140px; }
+  -webkit-mask-image: linear-gradient(to top, #000 86%, transparent);
+  mask-image: linear-gradient(to top, #000 86%, transparent);
 }
 
-/* 顶部可视化画布：固定在页面顶端，与底部画布镜像对称（遮罩向下渐隐） */
+/* 顶部频谱画布：与底部镜像对称 */
 #heoMusic-page #heo-visualizer-top {
   position: fixed;
   left: 0;
   top: 0;
   width: 100%;
-  height: 220px;
+  height: 200px;
   z-index: 1;
   pointer-events: none;
-  -webkit-mask-image: linear-gradient(to bottom, #000 88%, transparent);
-  mask-image: linear-gradient(to bottom, #000 88%, transparent);
-}
-@media (max-width: 768px) {
-  #heoMusic-page #heo-visualizer-top { height: 140px; }
+  -webkit-mask-image: linear-gradient(to bottom, #000 86%, transparent);
+  mask-image: linear-gradient(to bottom, #000 86%, transparent);
 }
 
-/* 确保歌词 / 专辑封面 / 列表 / 控制器始终在可视化之上（不改动其已有定位） */
-#heoMusic-page .aplayer-info,
-#heoMusic-page .aplayer-list {
+
+/* ============================================================
+ *  ④ 播放器布局
+ *  APlayer 非 fixed 布局的真实结构：
+ *    .aplayer
+ *      ├─ #music_bg              (已隐藏)
+ *      ├─ .aplayer-left          → .aplayer-pic / .aplayer-list
+ *      └─ .aplayer-body          → .aplayer-info
+ *                                     ├─ .aplayer-music
+ *                                     ├─ .aplayer-lrc
+ *                                     └─ .aplayer-controller → .aplayer-time
+ * ============================================================ */
+
+#heoMusic-page {
   position: relative;
   z-index: 2;
+  height: 100dvh;
+  max-width: var(--qm-page-max);
+  margin: 0 auto;
+  padding: var(--qm-pad-top) 32px var(--qm-pad-bottom);
+  display: flex;
+  flex-direction: column;
 }
 
-#heoMusic-page .aplayer-lrc,
-#heoMusic-page .aplayer-controller {
+/* ★★ 关键一层：MetingJS 生成的 <meting-js> 包裹元素（2026-10-01 实测踩坑）
+ *
+ *  实际 DOM 是三层：
+ *      #heoMusic-page  →  <meting-js>  →  .aplayer
+ *
+ *  <meting-js> 是自定义元素，浏览器按 inline 处理，且它的高度是 auto。
+ *  于是 .aplayer 的 `height: 100%` 会去相对 <meting-js> 解析 —— 包含块高度不确定，
+ *  百分比直接失效，整个网格按内容撑到 2900+px。
+ *  只写 `#heoMusic-page .aplayer { height: 100% }` 是不够的，
+ *  必须把中间这一层也变成受约束的块级盒子。 */
+/* ★★ 必须在 .aplayer 内部强制 border-box（2026-10-01 实测踩坑）
+ *
+ *  APlayer.css 里有一条 `.aplayer * { box-sizing: content-box }`，
+ *  选择器优先级 (0,1,0) 高于本文件顶部的通配重置 `*` (0,0,0)，
+ *  所以播放器内部**所有**元素的 padding / border 都会加到 width/height 外面。
+ *  后果举例：`.aplayer-icon` 写 34px + padding 6px 会渲染成 46px，
+ *  手机端一排 6 个图标累计多出 72px，直接把控制条撑爆、最后一个图标被裁掉。
+ *  这里用 (1,1,0) 的优先级统一改回 border-box，让后续所有尺寸可预期。 */
+#heoMusic-page .aplayer,
+#heoMusic-page .aplayer *,
+#heoMusic-page .aplayer *::before,
+#heoMusic-page .aplayer *::after {
+  box-sizing: border-box;
+}
+
+#heoMusic-page > meting-js {
+  display: block;
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
   position: relative;
-  z-index: 2;
 }
 
 #heoMusic-page .aplayer {
-  display: flex;
-  flex-direction: row;
-  background: rgba(0, 0, 0, 0);
-  border: none;
+  flex: 1 1 auto;
+  /* ★★ 三重约束，缺一不可（2026-10-01 实测踩坑）：
+     只写 min-height:0 是不够的 —— APlayer 的 .aplayer-left 里放着 200+ 首的
+     列表，基础尺寸按内容算出来有 7000+px，flex-shrink 拦不住，
+     整个 .aplayer 会被撑到 7756px（视口才 727px），页面看起来「列表无限长」。
+     ① height:100%        —— 父级 #heoMusic-page 高度确定（100dvh），直接给死
+     ② grid-template-rows —— 单行显式设为 minmax(0,1fr)，否则隐式行按内容撑开
+     ③ min-height:0       —— 解除 flex/grid 子项的自动最小尺寸 */
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  /* ★ 用 grid + minmax(0,1fr) 而非 flex 的百分比宽度：
+     旧版是 left 40% + gap 40px + body 70% = 110%，必然横向溢出。 */
+  grid-template-columns: minmax(0, var(--qm-cover-w)) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: var(--qm-gap);
+  align-items: stretch;
+  background: transparent;
+  border: 0;
   box-shadow: none;
-  height: calc(100dvh - 170px);
-  gap: 40px;
+  margin: 0;          /* APlayer.css 给了 margin:5px，会让左栏比右栏多缩进 */
+  padding: 0;
+  overflow: hidden;
 }
 
-.aplayer-left {
+/* 左栏：封面 + 曲目列表 */
+#heoMusic-page .aplayer-left {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 24px;
-  width: 40%;
-  height: 100%;
-  max-width: 332px;
+  gap: 18px;
+  width: auto;
+  max-width: none;
+  height: auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;   /* 兜底：任何一侧撑破都不外溢到右栏 */
 }
 
-#heoMusic-page.localMusic {
-  display: flex;
-  flex-direction: row;
-  background: rgba(0, 0, 0, 0);
-  border: none;
-  box-shadow: none;
-  height: calc(100dvh - 170px);
-}
-
-body #web_bg {
-  filter: blur(63px);
-  opacity: 0.6;
-  background-repeat: no-repeat;
-  background-size: cover;
-}
-body #footer,
-body #nav-music {
-  display: none;
-}
-
+/* 右栏：曲目信息 + 歌词 + 控制条 */
 #heoMusic-page .aplayer-body {
-  width: 70%;
-  height: 100%;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;   /* 不写的话歌词区会被内容撑开，mask 渐隐范围跟着失控 */
+  display: flex;
+  overflow: hidden;
 }
 
-#heoMusic-page ol > li:hover {
-  background: var(--heo-black-op);
-  border-radius: 6px;
+#heoMusic-page .aplayer-info {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  border-bottom: 0;   /* APlayer.css 的 .aplayer-withlist .aplayer-info 带了条白线 */
 }
+
+#heoMusic-page .aplayer-music {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  height: auto;
+  margin: 0;
+  padding: 0 2px;
+  text-align: left;
+  min-width: 0;
+}
+
+#heoMusic-page .aplayer-music .aplayer-title {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--qm-text);
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+#heoMusic-page .aplayer-music .aplayer-author {
+  flex: none;
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--qm-text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 45%;
+}
+
+
+/* ============================================================
+ *  ⑤ 封面
+ * ============================================================ */
 #heoMusic-page .aplayer-pic {
+  flex: none;
   float: none;
-  width: 300px;
-  height: 300px;
-  border-radius: 12px;
-  z-index: 999;
-  position: relative;
-  transform: scale(0.9);
+  width: 100%;
+  max-width: var(--qm-cover-w);
+  height: auto;
+  aspect-ratio: 1 / 1;
+  margin: 0;
+  border-radius: var(--qm-r-lg);
   background-size: cover;
-  margin-top: 8px;
+  background-position: center;
+  box-shadow: var(--qm-shadow-lg);
+  /* 用 transform 做播放态微放大，不改尺寸，避免布局抖动 */
+  transform: scale(0.985);
+  transition: transform 0.5s var(--qm-ease), box-shadow 0.5s var(--qm-ease);
+  z-index: 1;
+  overflow: hidden;
 }
 
 #heoMusic-page.aplayer_playing .aplayer-pic {
   transform: scale(1);
-  box-shadow: var(--heo-shadow-black);
+  box-shadow: 0 28px 70px -18px rgba(0, 0, 0, 0.85);
 }
 
-#heoMusic-page .aplayer-info {
-  border-bottom: none;
-  height: 100%;
+/* 封面上的播放/暂停按钮：居中圆形玻璃钮 */
+#heoMusic-page .aplayer-pic .aplayer-button {
+  opacity: 0;
+  transition: opacity var(--qm-dur) var(--qm-ease),
+              transform var(--qm-dur) var(--qm-ease);
+  transform: scale(0.92);
 }
 
-#heoMusic-page .aplayer-info .aplayer-music {
-  text-align: center;
-  height: auto;
-  margin: 15px;
-  display: none;
-}
-
-#heoMusic-page .aplayer-info .aplayer-music .aplayer-author,
-#heoMusic-page .aplayer-info .aplayer-music .aplayer-title {
-  font-size: 2rem;
-  font-weight: 700;
-  color: #fff;
-}
-
-#heoMusic-page .aplayer-info .aplayer-lrc {
-  height: 100%;
-  overflow-y: scroll;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  mask-image: linear-gradient(to bottom, #0000, #000 10%, #000 90%, #0000);
-  -webkit-mask-image: linear-gradient(to bottom, #0000, #000 10%, #000 90%, #0000);
-}
-
-#heoMusic-page .aplayer-info .aplayer-lrc::-webkit-scrollbar {
-  display: none;
-}
-
-#heoMusic-page .aplayer-info .aplayer-lrc p {
-  font-size: 36px;
-  line-height: 1.38;
-  margin-bottom: 0;
-  padding: 8px;
-  border-radius: 8px;
-  color: #fff;
-  font-weight: bold;
-  text-align: left;
-  filter: blur(2px);
-  opacity: 0.3;
-  transition: all 0.9s cubic-bezier(0.56, 0.17, 0.22, 0.76),
-              height 0.3s ease,
-              background 0.3s ease,
-              max-height 0.3s ease;
-  user-select: none;
-  text-shadow: 0px 2px 0px #ffffff00;
-  position: relative;
-  cursor: pointer;
-  word-wrap: break-word; /* 兼容性更好，用于长单词换行 */
-  word-break: break-all; /* 针对所有内容强制换行 */
-}
-
-#heoMusic-page .aplayer-info .aplayer-lrc p:hover::after {
+#heoMusic-page .aplayer-pic:hover .aplayer-button,
+#heoMusic-page .aplayer-pic .aplayer-button.aplayer-play {
   opacity: 1;
+  transform: scale(1);
 }
 
-#heoMusic-page .aplayer-info .aplayer-lrc p.aplayer-lrc-current {
-  filter: blur(0px);
-  opacity: 1;
-  transition: all 0.3s cubic-bezier(0.56, 0.17, 0.22, 0.76), 
-              text-shadow 8s 4s ease-in,
-              height 0.3s ease,
-              max-height 0.3s ease,
-              opacity 0.3s ease;
-  height: auto;
-  max-height: 200px;
-  text-shadow: 0px 2px 16px #ffffff94;
-  white-space: normal;
-  text-overflow: clip;
-  transform: translateZ(0);
-}
-
-#heoMusic-page .aplayer-info .aplayer-lrc p.aplayer-lrc-current:first-child {
-  text-shadow: 0px 2px 16px #ffffff00;
-}
-
-#heoMusic-page .aplayer-info .aplayer-lrc p:hover {
-  background: #ffffff47;
-}
-
-#heoMusic-page .aplayer-info .aplayer-lrc p.aplayer-lrc-current:hover {
-  background: #ffffff1b;
-}
-
-
-@media screen and (min-width: 768px) {
-  #heoMusic-page .aplayer-info .aplayer-lrc:hover p {
-    filter: blur(0px);
-  }
-}
-
-#heoMusic-page .aplayer .aplayer-lrc:after,
-#heoMusic-page .aplayer .aplayer-lrc:before {
-  display: none;
-}
-
-.aplayer .aplayer-lrc .aplayer-lrc-contents {
-  padding: 200px 20px 600px 20px;
-  width: 90%;
-  transition: all .5s cubic-bezier(0.49, 0.21, 0.22, 0.84);
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  transform: translateZ(0);
-  margin-left: 16px;
-}
-
-@media screen and (max-width: 768px) {
-  .aplayer .aplayer-lrc .aplayer-lrc-contents {
-    width: calc(100% - 40px);
-  }
-}
-
-/* 控制器 */
-#heoMusic-page .aplayer-info .aplayer-controller {
-  position: fixed;
-  max-width: calc(1200px - 160px);
-  margin: auto;
-  left: 0;
-  right: 0;
-  bottom: 50px;
-  align-items: center;
-}
-#heoMusic-page .aplayer-info .aplayer-controller .aplayer-bar-wrap {
-  margin: 0 150px 0 150px;
-}
-#heoMusic-page .aplayer-info .aplayer-controller .aplayer-played {
-  background: var(--heo-white) !important;
-}
-#heoMusic-page .aplayer-info .aplayer-controller .aplayer-thumb {
-  -webkit-transform: none;
-  transform: none;
-  background: #fff !important;
-}
-#heoMusic-page .aplayer-info .aplayer-time .aplayer-icon-back,
-#heoMusic-page .aplayer-info .aplayer-time .aplayer-icon-forward,
-#heoMusic-page .aplayer-info .aplayer-time .aplayer-icon-play {
-  display: inline;
-  position: fixed;
-}
-#heoMusic-page .aplayer-info .aplayer-time {
-  position: absolute;
-  width: 100%;
-  bottom: 24px;
-  height: 0;
-  display: flex;
-  justify-content: flex-end;
-}
-#heoMusic-page .aplayer-info .aplayer-time .aplayer-time-inner {
-  margin-right: 18px;
-  margin-top: -8px;
-}
-#heoMusic-page .aplayer-info .aplayer-time .aplayer-icon-back {
-  position: absolute;
-  left: 0;
-}
-#heoMusic-page .aplayer-info .aplayer-time .aplayer-icon-play {
-  position: absolute;
-  left: 40px;
-}
-#heoMusic-page .aplayer-info .aplayer-time .aplayer-icon-forward {
-  position: absolute;
-  left: 80px;
-}
-
-#heoMusic-page .aplayer-info .aplayer-time .aplayer-icon {
+#heoMusic-page .aplayer-pic .aplayer-button svg {
   width: 26px;
   height: 26px;
-  margin-left: 15px;
+  fill: #fff;
 }
 
-#heoMusic-page .aplayer-info .aplayer-time .aplayer-volume-wrap::before {
-  content: '';
-  position: absolute;
-  padding: 8px;
-  bottom: -6px;
-  left: 3px;
-  width: 28px;
-  height: 150px;
-}
 
-#heoMusic-page .aplayer-info .aplayer-time .aplayer-icon-menu {
-  display: none;
-}
-
-#heoMusic-page .aplayer-info .aplayer-time .aplayer-icon path {
-  fill: var(--heo-white);
-  opacity: 0.8;
-}
-
+/* ============================================================
+ *  ⑥ 曲目列表（左栏卡片，内部滚动）
+ *  折叠由 .aplayer-list-hide 控制（display:none 定义在 APlayer.css）
+ * ============================================================ */
 #heoMusic-page .aplayer-list {
-  width: 100%;
-  height: 100%;
-  flex: 1;
-  min-width: 200px;
-}
- 
-#heoMusic-page ol::-webkit-scrollbar-thumb {
-  background-color: var(--heo-white-op);
+  /* ★ flex-basis 用 0 而非 auto：auto 会以内容高度（7000+px）为基准，
+     在高度受限的父级里 shrink 不回来；0 则直接把剩余空间全给它。 */
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  /* 折叠靠 APlayer.css 的 `.aplayer-list-hide { max-height: 0 !important }`，
+     所以这里不能写 max-height: none —— 会被上面那条 !important 正常覆盖，保留即可。 */
+  max-height: none;
+  /* 卡片自己只做「画框」，滚动交给内部的 ol（APlayer 自带的 ol 就是滚动容器，
+     在原结构上再加一层 overflow 会出现嵌套双滚动条）。 */
+  overflow: hidden;
+  overscroll-behavior: contain;
+  padding: 10px;
+  background: var(--qm-surface-1);
+  border: 1px solid var(--qm-line-1);
+  border-radius: var(--qm-r-md);
+  box-shadow: var(--qm-shadow-md);
+  -webkit-backdrop-filter: var(--qm-blur);
+  backdrop-filter: var(--qm-blur);
+  position: relative;
+  z-index: 2;
 }
 
+#heoMusic-page .aplayer-list ol {
+  margin: 0;
+  padding: 0;
+  padding-right: 4px;   /* 给滚动条留位，避免压住作者名 */
+  list-style: none;
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+#heoMusic-page .aplayer-list ol::-webkit-scrollbar {
+  width: 6px;
+}
+
+#heoMusic-page .aplayer-list ol::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: var(--qm-r-pill);
+}
+
+#heoMusic-page .aplayer-list ol::-webkit-scrollbar-track {
+  background: transparent;
+}
 
 #heoMusic-page ol > li {
-  font-size: 14px;
-  opacity: 0.6;
-}
-#heoMusic-page ol > li.aplayer-list-light {
-  background: var(--heo-black-op);
-  border-radius: 6px;
-  height: 60px;
   display: flex;
-  flex-direction: column;
-  opacity: 1;
+  align-items: center;
+  gap: 10px;
+  height: auto;
+  /* APlayer.css 给 li 设了 `margin: 1px -4px 1px 8px`（负的右边距），
+     在新布局里会让整行右端戳出卡片，必须清掉。 */
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 13.5px;
+  line-height: 1.4;
+  border-radius: var(--qm-r-sm);
+  opacity: 0.62;
+  overflow: hidden;
+  transition: background var(--qm-dur) var(--qm-ease),
+              opacity var(--qm-dur) var(--qm-ease);
 }
 
-#heoMusic-page ol > li.aplayer-list-light .aplayer-list-index {
-  display: none;
-}
-
-#heoMusic-page ol > li.aplayer-list-light .aplayer-list-title {
-  font-size: 20px;
-  line-height: 20px;
-  margin-top: 8px;
-  font-weight: bold;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
+#heoMusic-page ol > li:hover {
+  background: var(--qm-surface-3);
+  opacity: 0.9;
+  border-radius: var(--qm-r-sm);
 }
 
 #heoMusic-page ol > li span {
-  color: var(--heo-white);
+  color: var(--qm-text);
 }
 
-#heoMusic-page ol > li.aplayer-list-light .aplayer-list-cur {
-  display: none;
-}
-#heoMusic-page ol > li span.aplayer-list-title {
-  line-height: 32px;
-}
-
+/* 序号：定宽右对齐，避免两位/三位数导致标题左边缘跳动 */
 #heoMusic-page ol > li .aplayer-list-index {
-  line-height: 32px;
+  flex: none;
+  width: 22px;
+  font-size: 12px;
+  text-align: right;
+  color: var(--qm-text-3);
+  line-height: 1.4;
+}
+
+#heoMusic-page ol > li span.aplayer-list-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 #heoMusic-page ol > li span.aplayer-list-author {
-  opacity: 0.6;
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap;
+  flex: 0 1 auto;
   max-width: 40%;
-  line-height: 32px;
+  font-size: 12px;
+  color: var(--qm-text-2);
+  opacity: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+/* 当前播放项：整行强调 + 左侧信号条 */
+#heoMusic-page ol > li.aplayer-list-light {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  height: auto;
+  padding: 10px 12px;
+  background: var(--qm-accent-soft);
+  border: 1px solid rgba(122, 162, 255, 0.34);
+  border-radius: var(--qm-r-sm);
+  opacity: 1;
+}
+
+#heoMusic-page ol > li.aplayer-list-light span {
+  color: var(--qm-text);
+}
+
+#heoMusic-page ol > li.aplayer-list-light .aplayer-list-index {
+  display: block;
+  color: var(--qm-accent);
+  font-weight: 700;
+}
+
+#heoMusic-page ol > li.aplayer-list-light .aplayer-list-title {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.4;
+  margin-top: 0;
+  white-space: nowrap;
 }
 
 #heoMusic-page ol > li.aplayer-list-light span.aplayer-list-author {
-  max-width: 100%;
+  max-width: 40%;
+  color: var(--qm-text-2);
 }
 
-.aplayer .aplayer-info .aplayer-controller .aplayer-bar-wrap .aplayer-bar {
-  height: 8px;
-  border-radius: 8px;
-  background: var(--heo-white-op);
+/* APlayer 的「当前曲目」小圆点：本设计改用整行高亮，隐藏它避免重复表达 */
+#heoMusic-page ol > li .aplayer-list-cur,
+#heoMusic-page ol > li.aplayer-list-light .aplayer-list-cur {
+  display: none;
 }
 
-.aplayer .aplayer-info .aplayer-controller .aplayer-bar-wrap .aplayer-bar .aplayer-loaded {
-  background: var(--heo-white-op);
-  height: 8px;
-  border-radius: 8px;
-}
-
-.aplayer .aplayer-info .aplayer-controller .aplayer-bar-wrap .aplayer-bar .aplayer-played {
-  height: 8px;
-  border-radius: 8px;
-}
-
-.aplayer .aplayer-info .aplayer-controller .aplayer-bar-wrap .aplayer-bar .aplayer-played .aplayer-thumb {
-  height: 16px;
-  width: 16px;
-}
-
-/* 导航栏 */
-.page #nav {
-  backdrop-filter: none !important;
-  background: 0 0 !important;
-  border-bottom: none !important;
-}
-
-.page #page-header.not-top-img #nav a,
-.page #page-header #nav .back-home-button {
-  color: var(--heo-white);
-}
-
-body .s-sticker div {
-  color: var(--heo-white) !important;
-}
-
-body .aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-icon.aplayer-icon-loop {
-  margin-right: 7px;
-}
-
-.aplayer .aplayer-info .aplayer-controller .aplayer-time {
-  color: var(--heo-white);
-}
-
-[data-theme="dark"] .page #page-header:before {
-  background-color: transparent;
-}
-
-.aplayer .aplayer-info .aplayer-controller .aplayer-volume-wrap:hover .aplayer-volume-bar-wrap {
-  height: 120px;
-  border-radius: 40px;
-  width: 30px;
-}
-
-.aplayer .aplayer-info .aplayer-controller .aplayer-volume-wrap .aplayer-volume-bar-wrap {
-  width: 30px;
-}
-
-.aplayer .aplayer-info .aplayer-controller .aplayer-volume-wrap .aplayer-volume-bar-wrap .aplayer-volume-bar {
-  width: 100%;
-  height: 100%;
-  left: 0;
-}
-
-.aplayer .aplayer-info .aplayer-controller .aplayer-volume-wrap .aplayer-volume-bar-wrap .aplayer-volume-bar .aplayer-volume {
-  width: 100%;
-  background: var(--heo-white)!important;
-}
-
-/* **** 移动端样式 ***** */
-@media screen and (max-width: 768px) {
-  body #rightside {
-    display: none;
-  }
-  body #content-inner,
-  body #page {
-    z-index: auto;
-  }
-  /* 歌曲列表 */
-  #heoMusic-page .aplayer-list {
-    position: fixed;
-    z-index: 1003; /* 提高z-index以确保列表在遮罩之上 */
-    width: 100vw;
-    top: 0px;
-    left: 0;
-    background: var(--heo-white);
-    border-radius: 0px 0px 16px 16px;
-    padding: 15px 0px;
-    max-width: 100vw;
-    height: calc(100dvh - 240px);
-  }
-  #heoMusic-page .aplayer-list.aplayer-list-hide {
-    top: -100% !important;
-  }
-  #heoMusic-page ol {
-    padding: 0 16px;
-  }
-  #heoMusic-page ol > li {
-    display: flex;
-  }
-  #heoMusic-page ol > li span {
-    color: var(--font-color);
-  }
-  #heoMusic-page ol > li span.aplayer-list-title {
-    width: 30%;
-  }
-  #heoMusic-page ol > li.aplayer-list-light {
-    background: #33a673;
-    padding: 5px 20px;
-    border-radius: 10px;
-    height: 52px;
-    justify-content: center;
-  }
-  #heoMusic-page ol > li.aplayer-list-light .aplayer-list-title {
-    margin-top: 4px;
-  }
-  #heoMusic-page ol > li.aplayer-list-light span {
-    color: #fff;
-  }
-  #heoMusic-page ol > li span.aplayer-list-title {
-    max-width: 55%;
-    width: auto;
-    display: -webkit-box;
-    -webkit-line-clamp: 1;
-    overflow: hidden;
-    -webkit-box-orient: vertical;
-  }
-  #heoMusic-page ol > li span.aplayer-list-author {
-    right: 10px;
-    width: auto;
-    max-width: 35%;
-    display: -webkit-box;
-    -webkit-line-clamp: 1;
-    overflow: hidden;
-    -webkit-box-orient: vertical;
-    margin-left: auto;
-  }
-  #heoMusic-page ol > li.aplayer-list-light span.aplayer-list-author {
-    margin-left: 0;
-  }
-
-  #heoMusic-page ol > li.aplayer-list-light span.aplayer-list-author {
-    right: 15px;
-  }
-  /* 歌词信息 */
-  #heoMusic-page .aplayer-body {
-    width: 100%;
-    overflow: hidden;
-    position: fixed;
-    margin: auto;
-    left: 0;
-    right: 0;
-    top: 0;
-    height: calc(100dvh - 200px);
-  }
-  #heoMusic-page .aplayer-info .aplayer-lrc {
-    margin-top: 0;
-    height: calc(100dvh - 100px);
-    min-height: 100%;
-    mask-image: linear-gradient(to bottom, #000, #000, #000, #000, #0000, #0000);
-  }
-  /* 控制按键和进度条 */
-  #heoMusic-page .aplayer-info .aplayer-controller {
-    width: 100%;
-    bottom: 140px;
-  }
-  #heoMusic-page .aplayer-info .aplayer-controller .aplayer-bar-wrap {
-    margin: 0 32px;
-  }
-  #heoMusic-page .aplayer-info .aplayer-time {
-    bottom: -40px;
-    align-items: center;
-  }
-  #heoMusic-page .aplayer-info .aplayer-time .aplayer-time-inner {
-    position: absolute;
-    width: 100%;
-    margin-right: 4px;
-    margin-top: -60px;
-  }
-  #heoMusic-page .aplayer-info .aplayer-time .aplayer-time-inner .aplayer-dtime {
-    position: absolute;
-    right: 30px;
-  }
-  #heoMusic-page .aplayer-info .aplayer-time .aplayer-time-inner .aplayer-ptime {
-    position: absolute;
-    left: 44px;
-  }
-  #heoMusic-page .aplayer-info .aplayer-time .aplayer-icon-back {
-    margin: auto;
-    right: 110px;
-  }
-  #heoMusic-page .aplayer-info .aplayer-time .aplayer-icon-play {
-    margin: auto;
-    right: 0;
-    left: 0;
-    width: 56px;
-    height: 56px;
-  }
-  #heoMusic-page .aplayer-info .aplayer-time .aplayer-icon-forward {
-    margin: auto;
-    left: 110px;
-    right: 0;
-  }
-  #heoMusic-page .aplayer-info .aplayer-time .aplayer-icon-order {
-    position: absolute;
-    left: 22px;
-    width: 24px;
-    height: 24px;
-    opacity: 0.4;
-  }
-  #heoMusic-page .aplayer-info .aplayer-time .aplayer-icon-loop {
-    position: absolute;
-    right: 25px;
-    width: 24px;
-    height: 24px;
-    opacity: 0.4;
-  }
-  #heoMusic-page .aplayer-info .aplayer-time .aplayer-icon-menu {
-    display: inline;
-    position: absolute;
-    right: 30px;
-    top: -100px;
-    width: 24px;
-    height: 24px;
-    opacity: 0.4;
-  }
-  #heoMusic-page .aplayer-volume-bar-wrap {
-    bottom: 0px;
-    right: 7px;
-  }
-  #heoMusic-page .aplayer .aplayer-info .aplayer-controller .aplayer-volume-wrap {
-    left: -66px;
-    display: none;
-  }
-  #heoMusic-page.localMusic .aplayer-info .aplayer-controller .aplayer-volume-wrap {
-    left: -66px;
-    display: none;
-  }
-  #heoMusic-page .aplayer-info .aplayer-lrc p {
-    font-size: 32px;
-  }
-  #heoMusic-page .aplayer-info .aplayer-music {
-    display: flex;
-    position: fixed;
-    top: calc(100dvh - 178px);
-    left: 0;
-    margin: 0;
-    margin-left: 32px;
-    height: 21px;
-    max-width: calc(100vw - 110px);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    opacity: 0.6;
-    align-items: center;
-    line-height: 1;
-  }
-
-  #heoMusic-page .aplayer-info .aplayer-music .aplayer-title {
-    font-size: 16px;
-    font-weight: normal;
-    margin: 0;
-    line-height: 1;
-  }
-
-  #heoMusic-page .aplayer-info .aplayer-music .aplayer-author {
-    margin-left: 4px;
-    font-size: 16px;
-    font-weight: normal;
-    line-height: 1;
-  }
-
-  #heoMusic-page .aplayer-info .aplayer-music .aplayer-author,
-  #heoMusic-page .aplayer-info .aplayer-music .aplayer-title {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: calc(100vw - 176px);
-  }
-
-  .aplayer .aplayer-lrc {
-    overflow: inherit;
-  }
-
-  #heoMusic-page .aplayer-pic {
-    display: none;
-  }
-
-  .aplayer .aplayer-lrc .aplayer-lrc-contents {
-    margin-left: 0;
-  }
-}
-
-/* 前往主页按钮（右上角固定，玻璃质感） */
-.heo-home-btn {
-  position: fixed;
-  top: 20px;
-  right: 20px;
-  z-index: 1000;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 16px;
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1;
-  color: #fff;
-  text-decoration: none;
-  background: rgba(255, 255, 255, 0.15);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 999px;
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-  transition: background 0.3s ease, border-color 0.3s ease, transform 0.3s ease, box-shadow 0.3s ease;
-}
-
-.heo-home-btn:hover {
-  background: rgba(255, 255, 255, 0.28);
-  border-color: rgba(255, 255, 255, 0.45);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
-}
-
-.heo-home-btn svg {
-  width: 16px;
-  height: 16px;
-  fill: #fff;
-}
-
-@media screen and (max-width: 768px) {
-  .heo-home-btn {
-    top: 14px;
-    right: 14px;
-    padding: 7px 13px;
-    font-size: 13px;
-  }
-}
-
-/* ===== 加载动画（全屏遮罩 + 音乐均衡器） ===== */
-#qui-loading {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgb(13, 13, 13);
-  transition: opacity .5s ease, visibility .5s ease;
-}
-#qui-loading.qui-hidden {
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-}
-.qui-loading-inner {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 22px;
-}
-/* 均衡器跳动条：音乐主题动效 */
-.qui-eq {
-  display: flex;
-  align-items: flex-end;
-  gap: 7px;
-  height: 56px;
-}
-.qui-eq span {
-  width: 9px;
-  height: 100%;
-  border-radius: 6px;
-  background: linear-gradient(215deg, #4584ff 0%, #cf0db9 100%);
-  transform-origin: bottom;
-  animation: qui-bounce 1.1s ease-in-out infinite;
-}
-.qui-eq span:nth-child(1) { animation-delay: -1.0s; }
-.qui-eq span:nth-child(2) { animation-delay: -0.8s; }
-.qui-eq span:nth-child(3) { animation-delay: -0.6s; }
-.qui-eq span:nth-child(4) { animation-delay: -0.4s; }
-.qui-eq span:nth-child(5) { animation-delay: -0.2s; }
-@keyframes qui-bounce {
-  0%, 100% { transform: scaleY(0.3); opacity: 0.6; }
-  50%      { transform: scaleY(1);   opacity: 1; }
-}
-.qui-loading-text {
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  background: linear-gradient(215deg, #4584ff 0%, #cf0db9 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-/* 尊重「减少动态效果」系统偏好 */
-@media (prefers-reduced-motion: reduce) {
-  .qui-eq span { animation: none; transform: scaleY(0.6); }
-}
-
-.heo-beian {
-  position: fixed;
-  bottom: 18px;
-  right: 18px;
-  z-index: 1000;
-}
-
-.heo-beian-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  font-size: 12px;
-  line-height: 1;
-  color: rgba(255, 255, 255, 0.85);
-  text-decoration: none;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 999px;
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-  transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease;
-}
-
-.heo-beian-link:hover {
-  background: rgba(255, 255, 255, 0.24);
-  color: #fff;
-  border-color: rgba(255, 255, 255, 0.4);
-}
-
-.heo-beian-icon {
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
-  display: block;
-  fill: #fff;
-  flex: none;
-}
-
-@media screen and (max-width: 768px) {
-  .heo-beian {
-    bottom: 12px;
-    right: 12px;
-  }
-  .heo-beian-link {
-    font-size: 11px;
-    padding: 6px 11px;
-  }
-}
 
 /* ============================================================
- *  右上角工具条（设置按钮 + 主页按钮）
- *  主页按钮由 main.js 注入到 .heo-topbar 内，两者由 flex 排列，
- *  这样按钮文字变长也不会互相重叠（比各自 fixed 硬算偏移可靠）。
+ *  ⑦ 歌词
+ * ============================================================ */
+#heoMusic-page .aplayer-lrc {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  margin: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-mask-image: linear-gradient(
+    to bottom, transparent 0%, #000 14%, #000 86%, transparent 100%);
+  mask-image: linear-gradient(
+    to bottom, transparent 0%, #000 14%, #000 86%, transparent 100%);
+  position: relative;
+  z-index: 2;
+}
+
+#heoMusic-page .aplayer-lrc::-webkit-scrollbar {
+  display: none;
+}
+
+/* APlayer.css 自带的上下渐隐遮罩关掉，改用上面的 mask-image（更平滑且不会遮住点击） */
+#heoMusic-page .aplayer .aplayer-lrc::before,
+#heoMusic-page .aplayer .aplayer-lrc::after {
+  display: none;
+}
+
+#heoMusic-page .aplayer-lrc .aplayer-lrc-contents {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: auto;
+  margin: 0;
+  padding: 12vh 4px 12vh;
+  transition: transform 0.45s var(--qm-ease);
+}
+
+#heoMusic-page .aplayer-lrc p {
+  margin: 0;
+  padding: 6px 10px;
+  font-size: clamp(18px, 1.9vw, 26px);
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: left;
+  color: var(--qm-text);
+  border-radius: var(--qm-r-sm);
+  opacity: 0.26;
+  filter: blur(1.6px);
+  cursor: pointer;
+  user-select: none;
+  word-wrap: break-word;
+  word-break: break-word;
+  transition: opacity 0.45s var(--qm-ease),
+              filter 0.45s var(--qm-ease),
+              background 0.25s var(--qm-ease),
+              text-shadow 0.45s var(--qm-ease);
+}
+
+#heoMusic-page .aplayer-lrc p:hover {
+  background: var(--qm-surface-3);
+  opacity: 0.65;
+}
+
+/* 当前行：清晰、加亮、带柔光 */
+#heoMusic-page .aplayer-lrc p.aplayer-lrc-current {
+  opacity: 1;
+  filter: blur(0);
+  font-weight: 700;
+  text-shadow: 0 0 28px rgba(255, 255, 255, 0.32);
+  background: transparent;
+  transition: opacity 0.3s var(--qm-ease),
+              filter 0.3s var(--qm-ease),
+              text-shadow 0.3s var(--qm-ease);
+}
+
+#heoMusic-page .aplayer-lrc p.aplayer-lrc-current:hover {
+  background: var(--qm-surface-3);
+}
+
+/* 鼠标悬停在歌词区时，全部行都脱去模糊，便于浏览 */
+@media (hover: hover) and (min-width: 821px) {
+  #heoMusic-page .aplayer-lrc:hover p {
+    filter: blur(0);
+  }
+}
+
+/* 纯音乐 / 无歌词时的占位文字（APlayer 会渲染成单行 p） */
+#heoMusic-page .aplayer-lrc p:only-child {
+  opacity: 0.5;
+  filter: none;
+  font-size: 20px;
+  text-shadow: none;
+}
+
+
+/* ============================================================
+ *  ⑧ 控制条（底部悬浮玻璃条）
+ *  结构：.aplayer-controller > .aplayer-bar-wrap + .aplayer-time
+ *  .aplayer-time 的子元素在 DOM 里顺序是「时间 → 后退 → 播放 → 前进 → 音量 → 模式 → 循环 → 菜单 → 歌词」，
+ *  本设计想要的是「后退 播放 前进 … 时间 音量 模式 循环 菜单 歌词」，
+ *  所以用 flex order 重排，而不是去改 DOM（改 DOM 会破坏 APlayer 的事件绑定）。
+ * ============================================================ */
+#heoMusic-page .aplayer-controller {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 20px;
+  /* ★★ APlayer.css 里 .aplayer-controller 是 `display:flex`（横排），
+     导致进度条与按钮行并排、按钮被挤到右半边（实测 .aplayer-time 的 x=772）。
+     必须显式改成纵向：上行进度条、下行按钮行。 */
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: min(calc(var(--qm-page-max) - 64px), calc(100vw - 40px));
+  max-width: none;
+  margin: 0;
+  padding: 14px 20px 12px;
+  background: var(--qm-surface-2);
+  border: 1px solid var(--qm-line-2);
+  border-radius: var(--qm-r-lg);
+  box-shadow: var(--qm-shadow-lg);
+  -webkit-backdrop-filter: var(--qm-blur);
+  backdrop-filter: var(--qm-blur);
+  z-index: 30;
+  box-sizing: border-box;
+}
+
+/* ---- 进度条 ---- */
+#heoMusic-page .aplayer-controller .aplayer-bar-wrap {
+  /* APlayer.css 是 `margin:0 0 0 5px; padding:4px 0; flex:1`：
+     在纵向容器里 flex:1 会纵向吃掉剩余高度，把按钮行顶出去，必须清掉。 */
+  flex: none;
+  margin: 0 0 8px;
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+#heoMusic-page .aplayer-controller .aplayer-bar {
+  height: 4px;
+  border-radius: var(--qm-r-pill);
+  background: rgba(255, 255, 255, 0.16);
+  overflow: visible;
+}
+
+#heoMusic-page .aplayer-controller .aplayer-bar .aplayer-loaded {
+  height: 4px;
+  border-radius: var(--qm-r-pill);
+  background: rgba(255, 255, 255, 0.10);
+}
+
+#heoMusic-page .aplayer-controller .aplayer-bar .aplayer-played {
+  height: 4px;
+  border-radius: var(--qm-r-pill);
+  /* ★ !important 是必需的：APlayer 会在元素上内联写死 background:<封面主色>，
+     不覆盖的话进度条颜色由封面决定，深色封面会直接「隐身」。 */
+  background: var(--qm-accent) !important;
+}
+
+#heoMusic-page .aplayer-controller .aplayer-bar .aplayer-played .aplayer-thumb {
+  width: 12px;
+  height: 12px;
+  top: 50%;
+  margin-top: -6px;
+  background: #fff !important;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.16);
+  transform: none;
+  transition: box-shadow var(--qm-dur) var(--qm-ease);
+}
+
+#heoMusic-page .aplayer-controller .aplayer-bar:hover .aplayer-thumb {
+  box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.26);
+}
+
+#heoMusic-page .aplayer-controller .aplayer-loading-icon {
+  display: block;
+}
+
+/* ---- 按钮行 ---- */
+#heoMusic-page .aplayer-controller .aplayer-time {
+  /* 清掉 APlayer.css 的 `position:relative; right:0; bottom:4px; height:17px;
+     padding-left:7px`——height:17px 会把 42px 的播放键裁掉一半。 */
+  position: static;
+  right: auto;
+  bottom: auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+  width: auto;
+  height: auto;
+  padding: 0;
+  color: var(--qm-text-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+#heoMusic-page .aplayer-controller .aplayer-time-inner {
+  order: 40;
+  margin: 0 8px 0 auto;   /* margin-left:auto 把右半边推到最右 */
+  padding-left: 8px;
+  color: var(--qm-text-3);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+#heoMusic-page .aplayer-controller .aplayer-time .aplayer-icon {
+  position: static;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  margin: 0;
+  padding: 6px;
+  border: 0;
+  border-radius: var(--qm-r-pill);
+  background: transparent;
+  color: var(--qm-text-2);
+  cursor: pointer;
+  opacity: 1;
+  transition: background var(--qm-dur) var(--qm-ease),
+              color var(--qm-dur) var(--qm-ease);
+}
+
+#heoMusic-page .aplayer-controller .aplayer-time .aplayer-icon:hover {
+  background: var(--qm-surface-hi);
+  color: var(--qm-text);
+}
+
+/* 图标统一用 currentColor 上色：APlayer 的 SVG 是 fill 填充，
+   不显式指定会继承 APlayer.css 的默认黑色，在深底上看不见。 */
+#heoMusic-page .aplayer-controller .aplayer-time .aplayer-icon svg,
+#heoMusic-page .aplayer-controller .aplayer-time .aplayer-icon path {
+  fill: currentColor;
+  width: 100%;
+  height: 100%;
+}
+
+/* ---- 顺序重排（见本节开头说明） ---- */
+#heoMusic-page .aplayer-time .aplayer-icon-back      { order: 10; }
+#heoMusic-page .aplayer-time .aplayer-icon-play      { order: 20; }
+#heoMusic-page .aplayer-time .aplayer-icon-forward   { order: 30; }
+#heoMusic-page .aplayer-time .aplayer-volume-wrap    { order: 50; }
+#heoMusic-page .aplayer-time .aplayer-icon-order     { order: 60; }
+#heoMusic-page .aplayer-time .aplayer-icon-loop      { order: 70; }
+#heoMusic-page .aplayer-time .aplayer-icon-menu      { order: 80; }
+#heoMusic-page .aplayer-time .aplayer-icon-lrc       { order: 90; }
+
+/* ---- 播放键：强调色实心圆，作为控制条的视觉焦点 ---- */
+#heoMusic-page .aplayer-time .aplayer-icon-play {
+  width: 42px;
+  height: 42px;
+  margin: 0 6px;
+  padding: 10px;
+  color: #fff;
+  background: var(--qm-accent);
+  box-shadow: 0 6px 20px -6px var(--qm-accent);
+}
+
+#heoMusic-page .aplayer-time .aplayer-icon-play:hover {
+  background: var(--qm-accent);
+  filter: brightness(1.12);
+}
+
+#heoMusic-page .aplayer-time .aplayer-icon-play svg,
+#heoMusic-page .aplayer-time .aplayer-icon-play path {
+  fill: #fff;
+}
+
+/* ---- 音量 ---- */
+#heoMusic-page .aplayer-time .aplayer-volume-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0;   /* APlayer.css 的 3px 会打乱按钮行的等距节奏 */
+}
+
+#heoMusic-page .aplayer-time .aplayer-volume-bar-wrap {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  width: 32px;
+  height: 0;
+  margin-left: -16px;
+  overflow: hidden;
+  background: var(--qm-surface-2);
+  border: 1px solid var(--qm-line-2);
+  border-radius: var(--qm-r-pill);
+  -webkit-backdrop-filter: var(--qm-blur-sm);
+  backdrop-filter: var(--qm-blur-sm);
+  transition: height var(--qm-dur) var(--qm-ease), opacity var(--qm-dur) var(--qm-ease);
+  opacity: 0;
+}
+
+#heoMusic-page .aplayer-time .aplayer-volume-wrap:hover .aplayer-volume-bar-wrap {
+  height: 108px;
+  opacity: 1;
+}
+
+#heoMusic-page .aplayer-time .aplayer-volume-bar {
+  position: relative;
+  width: 4px;
+  height: calc(100% - 16px);
+  margin: 8px auto;
+  border-radius: var(--qm-r-pill);
+  background: rgba(255, 255, 255, 0.18);
+}
+
+#heoMusic-page .aplayer-time .aplayer-volume {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 100%;
+  border-radius: var(--qm-r-pill);
+  background: var(--qm-accent) !important;
+  transition: none;
+}
+
+/* 右键上下文菜单 / 其它 APlayer 弹层统一玻璃化 */
+body .aplayer-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+
+/* ============================================================
+ *  ⑨ 悬浮控件：右上角工具条 + 备案号
  * ============================================================ */
 .heo-topbar {
   position: fixed;
@@ -966,82 +916,156 @@ body .aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-icon.apla
   gap: 10px;
 }
 
-/* 进到工具条里之后去掉自身的 fixed 定位，交给容器排列 */
+/* 「主页」按钮默认是自身 fixed（main.js 注入，可能落在 body 或工具条内），
+   进了工具条就交给 flex 排列，避免两个 fixed 元素硬算偏移互相压。 */
 .heo-topbar > .heo-home-btn {
   position: static;
   top: auto;
   right: auto;
 }
 
-.heo-icon-btn {
+/* 工具条里的按钮统一形态（主页按钮与齿轮按钮共用一套玻璃语言） */
+.heo-icon-btn,
+.heo-home-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 38px;
+  gap: 6px;
   height: 38px;
-  padding: 0;
-  color: #fff;
-  background: rgba(255, 255, 255, 0.15);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 999px;
+  padding: 0 14px;
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--qm-text);
+  text-decoration: none;
+  background: var(--qm-surface-1);
+  border: 1px solid var(--qm-line-2);
+  border-radius: var(--qm-r-pill);
+  box-shadow: var(--qm-shadow-sm);
+  -webkit-backdrop-filter: var(--qm-blur);
+  backdrop-filter: var(--qm-blur);
   cursor: pointer;
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-  transition: background 0.3s ease, border-color 0.3s ease, transform 0.3s ease, box-shadow 0.3s ease;
+  transition: background var(--qm-dur) var(--qm-ease),
+              border-color var(--qm-dur) var(--qm-ease),
+              transform var(--qm-dur) var(--qm-ease);
 }
 
-.heo-icon-btn:hover {
-  background: rgba(255, 255, 255, 0.28);
-  border-color: rgba(255, 255, 255, 0.45);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+.heo-icon-btn {
+  width: 38px;
+  padding: 0;
 }
 
-.heo-icon-btn svg {
-  width: 18px;
-  height: 18px;
-  fill: #fff;
+.heo-icon-btn:hover,
+.heo-home-btn:hover {
+  background: var(--qm-surface-hi);
+  border-color: var(--qm-line-3);
+  transform: translateY(-1px);
 }
 
-/* 打开状态下的齿轮：轻微旋转，给出「已展开」的反馈 */
+.heo-icon-btn svg,
+.heo-home-btn svg {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  fill: currentColor;
+}
+
+.heo-home-btn span {
+  white-space: nowrap;
+}
+
+/* 按钮自带的 fixed 兜底（万一 main.js 没找到工具条，直接挂到了 body 上） */
+body > .heo-home-btn {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1000;
+}
+
+/* 设置面板打开时，齿轮转 45°，给出「已展开」反馈 */
 .heo-icon-btn[aria-expanded="true"] {
-  background: rgba(255, 255, 255, 0.3);
-  border-color: rgba(255, 255, 255, 0.5);
+  background: var(--qm-surface-hi);
+  border-color: var(--qm-line-3);
 }
+
 .heo-icon-btn[aria-expanded="true"] svg {
   transform: rotate(45deg);
-  transition: transform 0.3s ease;
+  transition: transform 0.3s var(--qm-ease);
 }
 
+/* ---- 备案号胶囊 ---- */
+.heo-beian {
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  z-index: 1000;
+}
+
+.heo-beian-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--qm-text-2);
+  text-decoration: none;
+  background: var(--qm-surface-1);
+  border: 1px solid var(--qm-line-1);
+  border-radius: var(--qm-r-pill);
+  -webkit-backdrop-filter: var(--qm-blur);
+  backdrop-filter: var(--qm-blur);
+  transition: background var(--qm-dur) var(--qm-ease),
+              color var(--qm-dur) var(--qm-ease),
+              border-color var(--qm-dur) var(--qm-ease);
+}
+
+.heo-beian-link:hover {
+  color: var(--qm-text);
+  background: var(--qm-surface-hi);
+  border-color: var(--qm-line-2);
+}
+
+.heo-beian-icon {
+  display: block;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
+
 /* ============================================================
- *  设置面板
- *  用 opacity/visibility 控制显隐，**不用 hidden 属性**：
- *  hidden 依赖 display:none，容易被其它 display 声明覆盖而失效。
+ *  ⑩ 设置面板
+ *  显隐用 opacity/visibility（不用 hidden 属性：hidden 依赖 display:none，
+ *  容易被其它 display 声明覆盖而失效）。
  * ============================================================ */
 .heo-settings-panel {
   position: fixed;
   top: 70px;
   right: 20px;
   z-index: 1200;
-  width: 330px;
+  width: 336px;
   max-width: calc(100vw - 32px);
-  max-height: calc(100vh - 150px);
+  max-height: calc(100dvh - 150px);
   display: flex;
   flex-direction: column;
-  color: #fff;
-  background: rgba(22, 22, 30, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 18px;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
-  -webkit-backdrop-filter: blur(22px) saturate(1.4);
-  backdrop-filter: blur(22px) saturate(1.4);
+  color: var(--qm-text);
+  background: var(--qm-surface-2);
+  border: 1px solid var(--qm-line-2);
+  border-radius: var(--qm-r-lg);
+  box-shadow: var(--qm-shadow-lg);
+  -webkit-backdrop-filter: var(--qm-blur);
+  backdrop-filter: var(--qm-blur);
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
   transform: translateY(-10px) scale(0.98);
   transform-origin: top right;
-  transition: opacity 0.24s ease, transform 0.24s ease, visibility 0.24s;
+  transition: opacity var(--qm-dur) var(--qm-ease),
+              transform var(--qm-dur) var(--qm-ease),
+              visibility var(--qm-dur);
 }
 
 .heo-settings-panel.is-open {
@@ -1052,37 +1076,39 @@ body .aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-icon.apla
 }
 
 .heo-panel-head {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px 10px;
   flex: none;
+  padding: 16px 18px 10px;
 }
 
 .heo-panel-title {
   font-size: 15px;
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
 }
 
 .heo-panel-close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   padding: 0;
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--qm-text-2);
   background: transparent;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--qm-r-sm);
   cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease;
+  transition: background var(--qm-dur) var(--qm-ease),
+              color var(--qm-dur) var(--qm-ease);
 }
 
 .heo-panel-close:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.14);
+  color: var(--qm-text);
+  background: var(--qm-surface-hi);
 }
 
 .heo-panel-close svg {
@@ -1092,24 +1118,24 @@ body .aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-icon.apla
 }
 
 .heo-panel-body {
-  padding: 0 16px 16px;
+  padding: 0 14px 16px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  /* 移动端惯性滚动 */
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
 }
 
-/* ---------- 账号区 ---------- */
+/* ---- 账号区 ---- */
 .heo-account {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  padding: 11px 12px;
+  padding: 12px;
   margin-bottom: 16px;
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
+  background: var(--qm-surface-3);
+  border: 1px solid var(--qm-line-1);
+  border-radius: var(--qm-r-md);
 }
 
 .heo-account-user {
@@ -1120,12 +1146,12 @@ body .aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-icon.apla
 }
 
 .heo-account-avatar {
-  width: 34px;
-  height: 34px;
+  flex: none;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   object-fit: cover;
-  flex: none;
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--qm-surface-hi);
 }
 
 .heo-account-avatar--text {
@@ -1134,7 +1160,7 @@ body .aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-icon.apla
   font-size: 14px;
   font-weight: 700;
   color: #fff;
-  background: #4584ff;
+  background: var(--qm-accent);
 }
 
 .heo-account-meta {
@@ -1147,80 +1173,82 @@ body .aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-icon.apla
 .heo-account-meta b {
   font-size: 13.5px;
   font-weight: 700;
-  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .heo-account-meta span {
   font-size: 11.5px;
-  color: rgba(255, 255, 255, 0.55);
+  color: var(--qm-text-3);
 }
 
 .heo-btn-primary,
 .heo-btn-ghost {
   flex: none;
-  padding: 7px 14px;
-  font-size: 12.5px;
-  font-weight: 700;
+  padding: 8px 15px;
   font-family: inherit;
-  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  border-radius: var(--qm-r-pill);
   cursor: pointer;
-  transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+  transition: background var(--qm-dur) var(--qm-ease),
+              border-color var(--qm-dur) var(--qm-ease),
+              opacity var(--qm-dur) var(--qm-ease);
 }
 
 .heo-btn-primary {
   color: #fff;
-  background: #4584ff;
+  background: var(--qm-accent);
   border: 1px solid transparent;
 }
 
 .heo-btn-primary:hover {
-  background: #5c94ff;
+  filter: brightness(1.1);
 }
 
 .heo-btn-ghost {
-  color: rgba(255, 255, 255, 0.85);
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: var(--qm-text-2);
+  background: var(--qm-surface-3);
+  border: 1px solid var(--qm-line-2);
 }
 
 .heo-btn-ghost:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.18);
-  border-color: rgba(255, 255, 255, 0.3);
+  color: var(--qm-text);
+  background: var(--qm-surface-hi);
+  border-color: var(--qm-line-3);
 }
 
-/* ---------- 分组 ---------- */
+/* ---- 分组 ---- */
 .heo-group + .heo-group {
-  margin-top: 18px;
+  margin-top: 20px;
 }
 
 .heo-group-title {
-  margin-bottom: 8px;
+  margin: 0 4px 8px;
   font-size: 11.5px;
   font-weight: 700;
-  letter-spacing: 0.08em;
-  color: rgba(255, 255, 255, 0.45);
+  letter-spacing: 0.09em;
+  color: var(--qm-text-3);
   text-transform: uppercase;
 }
 
-/* ---------- 设置行 ---------- */
+/* ---- 设置行 ---- */
 .heo-row {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 46px;
-  padding: 9px 12px;
-  border-radius: 11px;
+  min-height: 48px;
+  padding: 9px 10px;
+  border-radius: var(--qm-r-sm);
   cursor: pointer;
-  transition: background 0.2s ease;
+  transition: background var(--qm-dur) var(--qm-ease);
 }
 
 .heo-row:hover {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--qm-surface-3);
 }
 
 .heo-row--col {
@@ -1240,7 +1268,7 @@ body .aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-icon.apla
   gap: 2px;
   min-width: 0;
   font-size: 13.5px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.3;
 }
 
@@ -1248,10 +1276,10 @@ body .aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-icon.apla
   font-size: 11.5px;
   font-style: normal;
   font-weight: 400;
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--qm-text-3);
 }
 
-/* 原生 checkbox 只作语义与无障碍用途，视觉交给 .heo-switch */
+/* 原生 checkbox 只保留语义与键盘可达性，视觉全部交给 .heo-switch */
 .heo-row input[type="checkbox"] {
   position: absolute;
   width: 1px;
@@ -1265,9 +1293,9 @@ body .aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-icon.apla
   flex: none;
   width: 44px;
   height: 26px;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 999px;
-  transition: background 0.24s ease;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: var(--qm-r-pill);
+  transition: background var(--qm-dur) var(--qm-ease);
 }
 
 .heo-switch::after {
@@ -1280,74 +1308,378 @@ body .aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-icon.apla
   background: #fff;
   border-radius: 50%;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
-  transition: transform 0.24s ease;
+  transition: transform var(--qm-dur) var(--qm-ease);
 }
 
+/* ★ 靠兄弟选择器驱动，所以 .heo-switch 必须紧跟在 input 之后 */
 .heo-row input[type="checkbox"]:checked ~ .heo-switch {
-  background: #4584ff;
+  background: var(--qm-accent);
 }
 
 .heo-row input[type="checkbox"]:checked ~ .heo-switch::after {
   transform: translateX(18px);
 }
 
-/* 键盘可达性：焦点环 */
 .heo-row input[type="checkbox"]:focus-visible ~ .heo-switch {
-  outline: 2px solid rgba(255, 255, 255, 0.7);
+  outline: 2px solid var(--qm-line-3);
   outline-offset: 2px;
 }
 
-/* ---------- 分段控件（播放模式） ---------- */
+/* ---- 分段控件（播放模式） ---- */
 .heo-seg {
   display: flex;
   gap: 3px;
   padding: 3px;
-  background: rgba(255, 255, 255, 0.09);
-  border-radius: 999px;
+  background: var(--qm-surface-3);
+  border-radius: var(--qm-r-pill);
 }
 
 .heo-seg button {
   flex: 1;
-  padding: 7px 0;
-  font-size: 12.5px;
-  font-weight: 700;
+  padding: 8px 0;
   font-family: inherit;
-  color: rgba(255, 255, 255, 0.7);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--qm-text-2);
   background: transparent;
   border: 0;
-  border-radius: 999px;
+  border-radius: var(--qm-r-pill);
   cursor: pointer;
-  transition: background 0.2s ease, color 0.2s ease;
+  transition: background var(--qm-dur) var(--qm-ease),
+              color var(--qm-dur) var(--qm-ease);
 }
 
 .heo-seg button:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.1);
+  color: var(--qm-text);
+  background: var(--qm-surface-hi);
 }
 
 .heo-seg button.is-active {
-  color: #0e0e12;
+  color: #0c0c10;
   background: #fff;
 }
 
-/* ---------- 移动端：面板改为底部抽屉 ---------- */
-@media screen and (max-width: 768px) {
+
+/* ============================================================
+ *  ⑪ 加载动画
+ * ============================================================ */
+#qui-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--qm-bg);
+  transition: opacity 0.5s var(--qm-ease), visibility 0.5s var(--qm-ease);
+}
+
+#qui-loading.qui-hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.qui-loading-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+}
+
+.qui-eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 7px;
+  height: 56px;
+}
+
+.qui-eq span {
+  width: 9px;
+  height: 100%;
+  border-radius: 6px;
+  background: linear-gradient(215deg, #4584ff 0%, #cf0db9 100%);
+  transform-origin: bottom;
+  animation: qui-bounce 1.1s ease-in-out infinite;
+}
+
+.qui-eq span:nth-child(1) { animation-delay: -1.0s; }
+.qui-eq span:nth-child(2) { animation-delay: -0.8s; }
+.qui-eq span:nth-child(3) { animation-delay: -0.6s; }
+.qui-eq span:nth-child(4) { animation-delay: -0.4s; }
+.qui-eq span:nth-child(5) { animation-delay: -0.2s; }
+
+@keyframes qui-bounce {
+  0%, 100% { transform: scaleY(0.3); opacity: 0.6; }
+  50%      { transform: scaleY(1);   opacity: 1; }
+}
+
+.qui-loading-text {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  background: linear-gradient(215deg, #4584ff 0%, #cf0db9 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+
+/* ============================================================
+ *  ⑫ 响应式
+ *
+ *  三档断点，边界必须紧贴 Meting.js 的行为，否则会出现「列表折不起来」：
+ *    · Meting.js 里写着 `listFolded: window.innerWidth < 768 ? true : false`
+ *      —— 手机端列表**默认就是折叠的**，点菜单图标才展开；
+ *    · APlayer 的列表 toggle() 也只在 `window.innerWidth <= 768` 时生效。
+ *  所以 767 是「列表能否交互折叠」的硬边界，断点必须贴着它走。
+ *
+ *    ≥1024px   两栏（封面+列表 | 歌词）
+ *    768–1023  单栏，列表内联显示（APlayer 在这个宽度会把它展开）
+ *    ≤767px    单栏，列表改为底部抽屉（跟随菜单按钮滑入/滑出）
+ * ============================================================ */
+
+/* ---------- 中屏两栏：收窄封面栏与栏间距 ---------- */
+@media screen and (max-width: 1180px) {
+  :root {
+    --qm-cover-w: clamp(200px, 30vh, 300px);
+    --qm-gap: 36px;
+  }
+}
+
+/* ---------- 768–1023：单栏，列表内联 ---------- */
+@media screen and (max-width: 1023px) {
+  :root {
+    --qm-pad-top: 76px;
+    --qm-pad-bottom: 150px;
+    --qm-gap: 14px;
+  }
+
+  #heoMusic-page {
+    padding: var(--qm-pad-top) 24px var(--qm-pad-bottom);
+  }
+
+  #heoMusic-page .aplayer {
+    grid-template-columns: minmax(0, 1fr);
+    /* ★★ 两行必须显式写出来（2026-10-01 实测踩坑）：
+       单列时两个子项会分别落进第 1 行与「隐式第 2 行」；隐式行是 auto，
+       会被歌词内容撑到几千 px，第 1 行（1fr）被挤成 0 高度 ——
+       表现就是「手机/平板上封面和歌曲列表整个不见了」。
+       显式两行后：第一行按内容（封面+列表），第二行吃掉剩余空间给歌词。 */
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: var(--qm-gap);
+  }
+
+  #heoMusic-page .aplayer-left {
+    flex: none;
+    gap: 12px;
+    overflow: hidden;
+  }
+
+  #heoMusic-page .aplayer-pic {
+    max-width: min(40vw, 26vh, 240px);
+    margin: 0 auto;
+    border-radius: var(--qm-r-md);
+    box-shadow: var(--qm-shadow-md);
+  }
+
+  /* 列表：给「确定高度」而不是 max-height。
+     APlayer 的 ol 是 `height:100%` 的滚动容器，父级高度不确定时百分比失效，
+     ol 会按内容撑开、再被外层 overflow:hidden 裁掉（既看不到滚动条也滚不动）。 */
+  #heoMusic-page .aplayer-list {
+    flex: none;
+    height: clamp(140px, 24vh, 240px);
+    min-height: 0;
+    padding: 8px;
+  }
+
+  #heoMusic-page ol > li {
+    padding: 7px 10px;
+  }
+
+  #heoMusic-page .aplayer-music {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+
+  #heoMusic-page .aplayer-music .aplayer-title {
+    font-size: 18px;
+  }
+
+  #heoMusic-page .aplayer-music .aplayer-author {
+    max-width: 100%;
+    font-size: 13px;
+  }
+
+  #heoMusic-page .aplayer-lrc .aplayer-lrc-contents {
+    padding: 6vh 0 10vh;
+    gap: 4px;
+  }
+
+  #heoMusic-page .aplayer-lrc p {
+    font-size: clamp(17px, 3.4vw, 22px);
+    padding: 5px 6px;
+  }
+
+  /* 控制条：贴底、收窄 */
+  #heoMusic-page .aplayer-controller {
+    bottom: 12px;
+    width: calc(100vw - 24px);
+    padding: 12px 14px 10px;
+    border-radius: var(--qm-r-md);
+  }
+
+  #heoMusic-page .aplayer-time .aplayer-icon {
+    width: 32px;
+    height: 32px;
+    padding: 5px;
+  }
+
+  #heoMusic-page .aplayer-time .aplayer-icon-play {
+    width: 40px;
+    height: 40px;
+    margin: 0 4px;
+    padding: 9px;
+  }
+
+  /* 触屏设备没有 hover，音量条根本唤不出来，直接收起（用系统音量即可） */
+  #heoMusic-page .aplayer-time .aplayer-volume-wrap {
+    display: none;
+  }
+
+  #heoMusic-page .aplayer-time-inner {
+    margin-right: 2px;
+    padding-left: 0;
+  }
+}
+
+/* ---------- ≤767：手机，列表改底部抽屉 ---------- */
+@media screen and (max-width: 767px) {
+  :root {
+    --qm-pad-top: 72px;
+    --qm-pad-bottom: 156px;
+  }
+
+  body #rightside {
+    display: none;
+  }
+
+  #heoMusic-page {
+    padding: var(--qm-pad-top) 16px var(--qm-pad-bottom);
+  }
+
+  #heoMusic-page .aplayer-pic {
+    max-width: min(46vw, 32vh, 200px);
+  }
+
+  /* 封面上的播放钮在触屏上没有 hover，直接常显 */
+  #heoMusic-page .aplayer-pic .aplayer-button {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  /* 抽屉脱离文档流，左栏只剩封面 */
+  #heoMusic-page .aplayer-left {
+    overflow: visible;
+  }
+
+  /* ★ 列表抽屉。
+     APlayer 的折叠靠 `max-height: 0 !important`（定义在 APlayer.css），
+     这里改成**位移**隐藏，才能做出滑入滑出的动效。
+     要覆盖它必须同样带 !important —— 否则列表永远打不开，
+     只会剩下 16px 的内边距高度（实测 h=18px 就是这么来的）。 */
+  #heoMusic-page .aplayer-list {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: var(--qm-sheet-bottom);
+    z-index: 60;
+    flex: none;
+    height: min(58dvh, 440px);
+    max-height: none !important;
+    padding: 12px;
+    border-bottom: 0;
+    border-radius: var(--qm-r-lg) var(--qm-r-lg) 0 0;
+    box-shadow: 0 -20px 52px -20px rgba(0, 0, 0, 0.85);
+    transform: translateY(0);
+    opacity: 1;
+    transition: transform 0.34s var(--qm-ease), opacity 0.28s var(--qm-ease);
+  }
+
+  #heoMusic-page .aplayer-list.aplayer-list-hide {
+    /* 必须重写一次 max-height：APlayer 那条 !important 会把抽屉压成一条线。
+       这里额外加上底部偏移量，确保完全滑出视口而不是露一截。 */
+    max-height: none !important;
+    transform: translateY(calc(100% + var(--qm-sheet-bottom) + 8px));
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  /* 抽屉顶部把手，暗示可下滑关闭 */
+  #heoMusic-page .aplayer-list::before {
+    content: "";
+    position: absolute;
+    top: 7px;
+    left: 50%;
+    width: 36px;
+    height: 4px;
+    margin-left: -18px;
+    background: rgba(255, 255, 255, 0.26);
+    border-radius: var(--qm-r-pill);
+  }
+
+  #heoMusic-page .aplayer-list ol {
+    padding-top: 10px;
+  }
+
+  /* 只留「上一首 / 播放 / 下一首 + 菜单 + 歌词」，
+     随机的顺序/循环按钮在小屏上性价比太低（而且顺序也能在设置面板里改）。
+     ★ 这里必须写全 `.aplayer-controller .aplayer-time` 三段，与本文件的基础规则
+     同优先级并以「后出现」取胜；少写一段会被基础规则的 display:inline-flex 反压回去，
+     表现就是「移动端隐藏按钮的 CSS 明明写了却不生效」。 */
+  #heoMusic-page .aplayer-controller .aplayer-time .aplayer-icon-order,
+  #heoMusic-page .aplayer-controller .aplayer-time .aplayer-icon-loop {
+    display: none;
+  }
+
+  /* ---- 右上角工具条 ---- */
   .heo-topbar {
     top: 14px;
     right: 14px;
     gap: 8px;
   }
 
+  .heo-icon-btn,
+  .heo-home-btn {
+    height: 34px;
+    font-size: 13px;
+  }
+
   .heo-icon-btn {
     width: 34px;
-    height: 34px;
   }
 
-  .heo-icon-btn svg {
-    width: 16px;
-    height: 16px;
+  .heo-icon-btn svg,
+  .heo-home-btn svg {
+    width: 15px;
+    height: 15px;
   }
 
+  /* ---- 备案号挪到左上 ----
+     底部整条被控制条占满，留在右下会和它重叠。 */
+  .heo-beian {
+    top: 16px;
+    left: 14px;
+    bottom: auto;
+  }
+
+  .heo-beian-link {
+    padding: 7px 11px;
+    font-size: 11px;
+  }
+
+  /* ---- 设置面板改底部抽屉 ---- */
   .heo-settings-panel {
     top: auto;
     right: 0;
@@ -1355,8 +1687,8 @@ body .aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-icon.apla
     left: 0;
     width: auto;
     max-width: none;
-    max-height: 84vh;
-    border-radius: 20px 20px 0 0;
+    max-height: 86dvh;
+    border-radius: var(--qm-r-lg) var(--qm-r-lg) 0 0;
     border-bottom: 0;
     transform: translateY(16px);
     transform-origin: bottom center;
@@ -1366,55 +1698,112 @@ body .aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-icon.apla
     transform: none;
   }
 
-  /* 底部抽屉顶部加一条把手，暗示可下滑关闭 */
+  .heo-panel-head {
+    padding-top: 22px;
+  }
+
   .heo-panel-head::before {
     content: "";
     position: absolute;
-    top: 7px;
+    top: 9px;
     left: 50%;
     width: 36px;
     height: 4px;
     margin-left: -18px;
-    background: rgba(255, 255, 255, 0.25);
-    border-radius: 999px;
-  }
-
-  .heo-panel-head {
-    position: relative;
-    padding-top: 20px;
+    background: rgba(255, 255, 255, 0.24);
+    border-radius: var(--qm-r-pill);
   }
 }
 
-/* 动效降级：关闭过渡与旋转 */
-@media (prefers-reduced-motion: reduce) {
-  .heo-settings-panel,
-  .heo-icon-btn,
-  .heo-icon-btn svg,
-  .heo-switch,
-  .heo-switch::after,
-  .heo-row,
-  .heo-seg button {
-    transition: none !important;
+/* ---------- 小屏再压一档 ---------- */
+@media screen and (max-width: 400px) {
+  #heoMusic-page .aplayer-music .aplayer-title {
+    font-size: 16.5px;
   }
-  .heo-icon-btn[aria-expanded="true"] svg {
-    transform: none;
+
+  #heoMusic-page .aplayer-lrc p {
+    font-size: clamp(16px, 4.4vw, 19px);
+  }
+
+  #heoMusic-page .aplayer-time .aplayer-icon {
+    width: 30px;
+    height: 30px;
+  }
+
+  #heoMusic-page .aplayer-time .aplayer-icon-play {
+    width: 38px;
+    height: 38px;
+  }
+
+  #heoMusic-page .aplayer-time-inner {
+    font-size: 11px;
+  }
+}
+
+/* ---------- 横屏矮屏：把封面压到最小，保证歌词与控制条不被挤掉 ---------- */
+@media screen and (max-height: 520px) and (min-width: 1024px) {
+  :root {
+    --qm-pad-top: 68px;
+    --qm-pad-bottom: 132px;
+    --qm-cover-w: 180px;
   }
 }
 
 /* ============================================================
- *  设置生效后的界面状态
+ *  ⑬ 降级与生效状态
  * ============================================================ */
 
 /* 关闭「音乐可视化」：隐藏上下两条频谱画布。
- * 注意：这里只管显示，真正的省电来自 main.js 停止 rAF 循环 —— 只靠 CSS 隐藏的话
- * 绘制仍在以每秒 60 帧空转。 */
+ * 注意：这里只管显示。真正省电的是 main.js 停掉 rAF 循环 ——
+ * 只靠 CSS 隐藏的话，绘制仍会以每秒 60 帧空转。 */
 body.qui-hide-visualizer #heo-visualizer,
 body.qui-hide-visualizer #heo-visualizer-top {
   display: none !important;
 }
 
-/* 「封面背景」关闭时，main.js 只需摘掉 .show 类即可 ——
-   原有的 `#heo-cover-bg { opacity: 0 }` + `#heo-cover-bg.show { opacity: 1 }`
-   已经把淡入淡出做好了。这里**不要**再补 visibility/display，
-   否则隐藏会变成瞬间生效、跳过 0.6s 过渡，观感很突兀。 */
+/* 「封面背景」关闭时，main.js 只摘掉 #heo-cover-bg 的 .show 类即可 ——
+   上面 `#heo-cover-bg { opacity: 0 }` + `.show { opacity: 1 }` 已经带 0.6s 过渡。
+   ★ 这里不要再补 visibility/display，否则隐藏会瞬间生效、跳过淡出，观感很突兀。 */
 
+/* 尊重系统「减少动态效果」偏好：关掉所有装饰性动画与过渡 */
+@media (prefers-reduced-motion: reduce) {
+  .qui-eq span {
+    animation: none;
+    transform: scaleY(0.6);
+  }
+
+  #heo-cover-bg,
+  #heoMusic-page .aplayer-pic,
+  #heoMusic-page .aplayer-pic .aplayer-button,
+  #heoMusic-page .aplayer-lrc p,
+  #heoMusic-page .aplayer-lrc .aplayer-lrc-contents,
+  #heoMusic-page ol > li,
+  #heoMusic-page .aplayer-controller .aplayer-time .aplayer-icon,
+  .heo-settings-panel,
+  .heo-icon-btn,
+  .heo-icon-btn svg,
+  .heo-home-btn,
+  .heo-switch,
+  .heo-switch::after,
+  .heo-row,
+  .heo-seg button,
+  .heo-beian-link {
+    transition: none !important;
+  }
+
+  .heo-icon-btn[aria-expanded="true"] svg {
+    transform: none;
+  }
+}
+
+/* 键盘可达性：所有可交互元素给统一焦点环 */
+.heo-icon-btn:focus-visible,
+.heo-home-btn:focus-visible,
+.heo-panel-close:focus-visible,
+.heo-btn-primary:focus-visible,
+.heo-btn-ghost:focus-visible,
+.heo-seg button:focus-visible,
+.heo-beian-link:focus-visible {
+  outline: 2px solid var(--qm-accent);
+  outline-offset: 2px;
+}

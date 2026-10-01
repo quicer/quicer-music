@@ -909,8 +909,19 @@ body.qui-hide-visualizer #heo-visualizer {
   box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.26);
 }
 
+/* ---- 缓冲/加载指示（压在进度条圆点上的那个转圈）----
+ * ★★★ 这里以前写的是 `display: block`，是「圆点旁一直转圈」的唯一来源，不要再加回去。
+ *  APlayer 打开这个图标的**唯一开关**是容器 `.aplayer` 上的 `aplayer-loading` 类：
+ *      .aplayer.aplayer-loading … .aplayer-loading-icon { display: block }
+ *  这个类由它的 initloadingChecker（每 100ms 轮询）控制，判据是
+ *  「正在播放、但 audio.currentTime 不推进」—— 也就是真的卡在读缓冲。
+ *  写死 display:block 等于把这道判断短路：svg 上的
+ *  `animation: rotate 1s linear infinite` 会 7×24 一直转，
+ *  并且和「到底有没有在加载」再无任何关系。
+ *  修复 = 删掉 display 覆盖，显示与否交回 APlayer 自己管。
+ *  这里只留一条 pointer-events —— 它压在可拖动的圆点上，别让它截走拖拽手势。 */
 #heoMusic-page .aplayer-controller .aplayer-loading-icon {
-  display: block;
+  pointer-events: none;
 }
 
 /* ---- 按钮行 ---- */

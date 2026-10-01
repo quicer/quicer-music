@@ -965,6 +965,86 @@ var heo = {
       const ol = list && list.querySelector('ol');
       if (!list || !ol) return;
 
+      /* ================= ③ 修正切歌 / 展开列表时的滚动定位 =================
+       * 注：③ 特意排在 ① 前面 —— 下面 ② 段落末尾有一句 `if (!backdrop) return`，
+       *     放到它后面就会被那句提前 return 跳过。
+       *
+       * ★★★ 根因：APlayer 有**两处**把每行高度写死成 33px ——
+       *     list.show()    →  ol.scrollTop = 33 * index          （APlayer.min.js:269）
+       *     list.switch()  →  scrollTo(33 * index, 500, …, ol)   （APlayer.min.js:324）
+       *   33px 是它默认皮肤的行高（32px 高 + 上下各 1px margin）。
+       *   我们这套皮肤的行高是 35px、当前播放行 42px，乘数就对不上了，
+       *   而且误差随曲目序号**线性累积**。无头实测 205 首的歌单：
+       *     index=50  → 算出 1650，真实 1751（差 101px）
+       *     index=150 → 算出 4950，真实 5240（差 290px）
+       *     index=204 → 算出 6732，真实 7124（差 392px）
+       *   实测切到 index=150 后 scrollTop 停在 4950，而高亮行在 5233 ——
+       *   目标行整个落在可视区之外，这就是「换歌后歌曲列表栏定位不准」。
+       *
+       * 修法（两条，缺一不可）：
+       *   ① 用**真实几何**重算目标位置：getBoundingClientRect 相对差，
+       *      不依赖 offsetParent，也自动兼容手机端抽屉的 translateY。
+       *   ② APlayer 内部那次错误滚动是 500ms 的补间动画，会一直往 ol.scrollTop 写值；
+       *      不把它引开的话两边会互相拖拽（先滚错、再被拽回去）。
+       *      做法是在调用原方法的瞬间，把 template.listOl 临时指向一个离屏替身，
+       *      让那次补间落空 —— listOl 在 switch() 内部只被用到这一次，安全性已核对。
+       *   定位口径与 APlayer 原意保持一致：把目标行**顶对齐**到列表可视区顶部。
+       */
+      function listScrollTop(targetOl, index) {
+        const li = targetOl.children[index];
+        if (!li) return null;
+        // 目标行被搜索过滤隐藏时（display:none），getBoundingClientRect 全是 0，
+        // 算出来是个无意义的坐标。此时列表本来就在筛选态，不去动滚动位置最合理。
+        if (!li.offsetHeight) return null;
+        const olRect = targetOl.getBoundingClientRect();
+        const liRect = li.getBoundingClientRect();
+        const offset = (liRect.top - olRect.top) + targetOl.scrollTop;   // 该行在滚动内容里的绝对偏移
+        const max = Math.max(0, targetOl.scrollHeight - targetOl.clientHeight);
+        return Math.max(0, Math.min(offset, max));                        // 顶对齐 + 夹在可滚动范围内
+      }
+
+      // 只用来吃掉 APlayer 内部那次数值写死的滚动，不产生任何副作用
+      const SCROLL_SINK = { scrollTop: 0 };
+
+      function patchListScroll() {
+        const ap = window.ap;
+        if (!ap || !ap.list) return false;
+        if (ap.list.__quiScrollFixed) return true;   // 防重复打补丁（APlayer 重建时会重挂）
+        ap.list.__quiScrollFixed = true;
+
+        const origSwitch = ap.list.switch;
+        ap.list.switch = function (index) {
+          const T = this.player.template;
+          const realOl = T.listOl;
+          T.listOl = SCROLL_SINK;              // ② 引开内部补间
+          try {
+            origSwitch.call(this, index);
+          } finally {
+            T.listOl = realOl;                 // 一定要还原，后面还可能被别处用到
+          }
+          // 参数非法时原方法是空跑，我们也不能去动 scrollTop
+          if (typeof index !== 'number' || !this.audios[index]) return;
+          const top = listScrollTop(realOl, index);   // ① 用真实几何定位
+          if (top !== null) realOl.scrollTop = top;
+        };
+
+        // show() 原实现只有三句，逐句对齐后只替换掉写死的 33 * index
+        ap.list.show = function () {
+          this.player.events.trigger('listshow');
+          this.player.template.list.classList.remove('aplayer-list-hide');
+          const targetOl = this.player.template.listOl;
+          const top = listScrollTop(targetOl, this.index);
+          if (top !== null) targetOl.scrollTop = top;
+        };
+        return true;
+      }
+
+      // window.ap 由 Meting.js 在 new APlayer() 之后挂上，正常情况此刻已存在；
+      // 万一竞态没到，就等下一帧再补一次，不做无限轮询。
+      if (!patchListScroll()) {
+        requestAnimationFrame(function () { patchListScroll(); });
+      }
+
       /* ================= ① 歌单内搜索 ================= */
       const box = document.createElement('div');
       box.className = 'qui-search';

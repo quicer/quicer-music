@@ -452,13 +452,26 @@ var heo = {
         return cur && (cur.pic || cur.cover);
       } catch (e) { return null; }
     }
-    // 从封面提取主色。封面图经 Worker 图片代理加 CORS 头后，才能用 crossOrigin 读取像素，
-    // 否则直接跨域加载会被 canvas taint、getImageData 抛错（此时保持兜底色）。
+    // 从封面提取主色。
+    // 省请求策略：优先「直连」封面原地址 —— 图床自带 CORS 头时可直接读像素，不必经过 Worker 图片代理，
+    // 每首歌省下 1 次 Worker 请求；直连失败（图床无 CORS 导致 canvas taint，或图片加载出错）时，
+    // 自动回落到 Worker 图片代理重试一次，功能不受影响。
+    // 已确认直连失败的封面地址会被记录，避免同一封面反复白试一次直连。
+    const coverDirectFailed = {};
     function extractCoverColor() {
       const cover = getCoverUrl();
       if (!cover || cover === coverColorUrl) return;
       coverColorUrl = cover;
-      const src = musicWorkerUrl ? musicWorkerUrl + '?img=' + encodeURIComponent(cover) : cover;
+      // 该封面已知直连不可用：直接走代理，省掉一次注定失败的请求
+      if (coverDirectFailed[cover] && musicWorkerUrl) {
+        loadCoverColor(musicWorkerUrl + '?img=' + encodeURIComponent(cover), cover, true);
+        return;
+      }
+      loadCoverColor(cover, cover, false);
+    }
+
+    // src: 实际加载地址；cover: 原始封面地址（用于回落与失败记录）；viaProxy: 是否已走 Worker 代理
+    function loadCoverColor(src, cover, viaProxy) {
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = function () {
@@ -474,10 +487,24 @@ var heo = {
             r += d[i]; g += d[i + 1]; b += d[i + 2]; n++;
           }
           if (n) coverColor = { r: Math.round(r / n), g: Math.round(g / n), b: Math.round(b / n) };
-        } catch (e) { /* tainted: 保持兜底色 */ }
+        } catch (e) {
+          // canvas taint：说明该图床没给 CORS 头，回落代理重试
+          fallbackToProxyCover(cover, viaProxy);
+        }
       };
-      img.onerror = function () { /* 加载失败: 保持兜底色 */ };
+      img.onerror = function () {
+        fallbackToProxyCover(cover, viaProxy);
+      };
       img.src = src;
+    }
+
+    // 直连取色失败 → 回落到 Worker 图片代理（代理会补上 CORS 头）；已在代理模式则保持兜底色
+    function fallbackToProxyCover(cover, viaProxy) {
+      if (viaProxy) return;
+      coverDirectFailed[cover] = true;
+      if (musicWorkerUrl) {
+        loadCoverColor(musicWorkerUrl + '?img=' + encodeURIComponent(cover), cover, true);
+      }
     }
 
     // 频谱柱数量 & 帧间平滑缓冲

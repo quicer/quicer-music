@@ -267,16 +267,27 @@
 
     function doPush() {
       setSyncState('syncing');
-      SDK.api('/api/prefs', {
-        method: 'PUT',
-        token: SDK.token(),
-        body: { app_id: QUIID_APP_ID, data: { settings: state, updatedAt: Date.now() } }
-      }).then(function () {
-        setSyncState('synced');
-      }).catch(function (e) {
-        console.warn('[settings] 保存到云端失败', e);
-        setSyncState('offline');
-      });
+      var payload = {
+        app_id: QUIID_APP_ID,
+        data: { settings: state, updatedAt: Date.now() }
+      };
+      // 先 PUT，失败再降级 POST。
+      // ★ 为什么要降级：PUT 会触发 CORS 预检，一旦服务端 Allow-Methods 里漏了 PUT，
+      //   浏览器**直接阻断请求**（服务端零日志，控制台只有一句 CORS 报错），
+      //   表现就是「云端不可达，已存本机」但登录一切正常 —— 极难排查。
+      //   POST 是通行度更高的方法，通常必在 Allow-Methods 里；QuiID 侧两者语义一致。
+      SDK.api('/api/prefs', { method: 'PUT', token: SDK.token(), body: payload })
+        .catch(function (e) {
+          console.warn('[settings] PUT 保存失败，改用 POST 重试', e);
+          return SDK.api('/api/prefs', { method: 'POST', token: SDK.token(), body: payload });
+        })
+        .then(function () {
+          setSyncState('synced');
+        })
+        .catch(function (e) {
+          console.warn('[settings] 保存到云端失败', e);
+          setSyncState('offline');
+        });
     }
 
     if (immediate) doPush();

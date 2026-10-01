@@ -951,3 +951,470 @@ body .aplayer .aplayer-info .aplayer-controller .aplayer-time .aplayer-icon.apla
   }
 }
 
+/* ============================================================
+ *  右上角工具条（设置按钮 + 主页按钮）
+ *  主页按钮由 main.js 注入到 .heo-topbar 内，两者由 flex 排列，
+ *  这样按钮文字变长也不会互相重叠（比各自 fixed 硬算偏移可靠）。
+ * ============================================================ */
+.heo-topbar {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* 进到工具条里之后去掉自身的 fixed 定位，交给容器排列 */
+.heo-topbar > .heo-home-btn {
+  position: static;
+  top: auto;
+  right: auto;
+}
+
+.heo-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  transition: background 0.3s ease, border-color 0.3s ease, transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.heo-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.28);
+  border-color: rgba(255, 255, 255, 0.45);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+}
+
+.heo-icon-btn svg {
+  width: 18px;
+  height: 18px;
+  fill: #fff;
+}
+
+/* 打开状态下的齿轮：轻微旋转，给出「已展开」的反馈 */
+.heo-icon-btn[aria-expanded="true"] {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+.heo-icon-btn[aria-expanded="true"] svg {
+  transform: rotate(45deg);
+  transition: transform 0.3s ease;
+}
+
+/* ============================================================
+ *  设置面板
+ *  用 opacity/visibility 控制显隐，**不用 hidden 属性**：
+ *  hidden 依赖 display:none，容易被其它 display 声明覆盖而失效。
+ * ============================================================ */
+.heo-settings-panel {
+  position: fixed;
+  top: 70px;
+  right: 20px;
+  z-index: 1200;
+  width: 330px;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 150px);
+  display: flex;
+  flex-direction: column;
+  color: #fff;
+  background: rgba(22, 22, 30, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 18px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  -webkit-backdrop-filter: blur(22px) saturate(1.4);
+  backdrop-filter: blur(22px) saturate(1.4);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-10px) scale(0.98);
+  transform-origin: top right;
+  transition: opacity 0.24s ease, transform 0.24s ease, visibility 0.24s;
+}
+
+.heo-settings-panel.is-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: none;
+}
+
+.heo-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 10px;
+  flex: none;
+}
+
+.heo-panel-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.heo-panel-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: rgba(255, 255, 255, 0.75);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.heo-panel-close:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.heo-panel-close svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.heo-panel-body {
+  padding: 0 16px 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* 移动端惯性滚动 */
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ---------- 账号区 ---------- */
+.heo-account {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 12px;
+  margin-bottom: 16px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+}
+
+.heo-account-user {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.heo-account-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex: none;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.heo-account-avatar--text {
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  background: #4584ff;
+}
+
+.heo-account-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.heo-account-meta b {
+  font-size: 13.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.heo-account-meta span {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.heo-btn-primary,
+.heo-btn-ghost {
+  flex: none;
+  padding: 7px 14px;
+  font-size: 12.5px;
+  font-weight: 700;
+  font-family: inherit;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
+}
+
+.heo-btn-primary {
+  color: #fff;
+  background: #4584ff;
+  border: 1px solid transparent;
+}
+
+.heo-btn-primary:hover {
+  background: #5c94ff;
+}
+
+.heo-btn-ghost {
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.heo-btn-ghost:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* ---------- 分组 ---------- */
+.heo-group + .heo-group {
+  margin-top: 18px;
+}
+
+.heo-group-title {
+  margin-bottom: 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.45);
+  text-transform: uppercase;
+}
+
+/* ---------- 设置行 ---------- */
+.heo-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 46px;
+  padding: 9px 12px;
+  border-radius: 11px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.heo-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.heo-row--col {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  cursor: default;
+}
+
+.heo-row--col:hover {
+  background: transparent;
+}
+
+.heo-row-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.heo-row-label em {
+  font-size: 11.5px;
+  font-style: normal;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* 原生 checkbox 只作语义与无障碍用途，视觉交给 .heo-switch */
+.heo-row input[type="checkbox"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.heo-switch {
+  position: relative;
+  flex: none;
+  width: 44px;
+  height: 26px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  transition: background 0.24s ease;
+}
+
+.heo-switch::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  transition: transform 0.24s ease;
+}
+
+.heo-row input[type="checkbox"]:checked ~ .heo-switch {
+  background: #4584ff;
+}
+
+.heo-row input[type="checkbox"]:checked ~ .heo-switch::after {
+  transform: translateX(18px);
+}
+
+/* 键盘可达性：焦点环 */
+.heo-row input[type="checkbox"]:focus-visible ~ .heo-switch {
+  outline: 2px solid rgba(255, 255, 255, 0.7);
+  outline-offset: 2px;
+}
+
+/* ---------- 分段控件（播放模式） ---------- */
+.heo-seg {
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  background: rgba(255, 255, 255, 0.09);
+  border-radius: 999px;
+}
+
+.heo-seg button {
+  flex: 1;
+  padding: 7px 0;
+  font-size: 12.5px;
+  font-weight: 700;
+  font-family: inherit;
+  color: rgba(255, 255, 255, 0.7);
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.heo-seg button:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.heo-seg button.is-active {
+  color: #0e0e12;
+  background: #fff;
+}
+
+/* ---------- 移动端：面板改为底部抽屉 ---------- */
+@media screen and (max-width: 768px) {
+  .heo-topbar {
+    top: 14px;
+    right: 14px;
+    gap: 8px;
+  }
+
+  .heo-icon-btn {
+    width: 34px;
+    height: 34px;
+  }
+
+  .heo-icon-btn svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .heo-settings-panel {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto;
+    max-width: none;
+    max-height: 84vh;
+    border-radius: 20px 20px 0 0;
+    border-bottom: 0;
+    transform: translateY(16px);
+    transform-origin: bottom center;
+  }
+
+  .heo-settings-panel.is-open {
+    transform: none;
+  }
+
+  /* 底部抽屉顶部加一条把手，暗示可下滑关闭 */
+  .heo-panel-head::before {
+    content: "";
+    position: absolute;
+    top: 7px;
+    left: 50%;
+    width: 36px;
+    height: 4px;
+    margin-left: -18px;
+    background: rgba(255, 255, 255, 0.25);
+    border-radius: 999px;
+  }
+
+  .heo-panel-head {
+    position: relative;
+    padding-top: 20px;
+  }
+}
+
+/* 动效降级：关闭过渡与旋转 */
+@media (prefers-reduced-motion: reduce) {
+  .heo-settings-panel,
+  .heo-icon-btn,
+  .heo-icon-btn svg,
+  .heo-switch,
+  .heo-switch::after,
+  .heo-row,
+  .heo-seg button {
+    transition: none !important;
+  }
+  .heo-icon-btn[aria-expanded="true"] svg {
+    transform: none;
+  }
+}
+
+/* ============================================================
+ *  设置生效后的界面状态
+ * ============================================================ */
+
+/* 关闭「音乐可视化」：隐藏上下两条频谱画布。
+ * 注意：这里只管显示，真正的省电来自 main.js 停止 rAF 循环 —— 只靠 CSS 隐藏的话
+ * 绘制仍在以每秒 60 帧空转。 */
+body.qui-hide-visualizer #heo-visualizer,
+body.qui-hide-visualizer #heo-visualizer-top {
+  display: none !important;
+}
+
+/* 「封面背景」关闭时，main.js 只需摘掉 .show 类即可 ——
+   原有的 `#heo-cover-bg { opacity: 0 }` + `#heo-cover-bg.show { opacity: 1 }`
+   已经把淡入淡出做好了。这里**不要**再补 visibility/display，
+   否则隐藏会变成瞬间生效、跳过 0.6s 过渡，观感很突兀。 */
+

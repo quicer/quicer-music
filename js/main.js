@@ -60,7 +60,29 @@ function loadMusicScript() {
   }
 }
 
-var volume = 0.8;
+// ============================================================
+//  用户设置接入
+//  ------------------------------------------------------------
+//  设置的真身在 js/settings.js（面板交互、持久化、QuiID 云同步都在那边）。
+//  这里只做两件事：读值、应用。settings.js 没加载时全部回落到默认值，
+//  所以本文件单独拿出来也能跑，不会因为缺依赖而报错。
+// ============================================================
+var QS = window.QuiMusicSettings || null;
+
+function quiSetting(key, fallback) {
+  if (QS && typeof QS.get === 'function') {
+    var v = QS.get(key);
+    return (v === undefined) ? fallback : v;
+  }
+  return fallback;
+}
+
+// 音量：开启「音量记忆」时沿用上次保存的值，否则用固定默认值
+var volume = quiSetting('volume', 0.8);
+
+// 「自动播放」只在播放器首次就绪时尝试一次。
+// 之后用户若手动暂停，不应该因为改了个设置又把它自动播起来。
+var autoplayTried = false;
 
 // 获取地址栏参数
 // 创建URLSearchParams对象并传入URL中的查询字符串
@@ -397,9 +419,58 @@ var heo = {
     btn.rel = 'noopener';
     btn.setAttribute('aria-label', '前往我的主页');
     btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l9 8h-3v9h-4v-6h-4v6H6v-9H3z"/></svg><span>主页</span>';
-    document.body.appendChild(btn);
+    // 优先注入到右上角工具条（与设置按钮同排，由 flex 自动排列，不会互相重叠）；
+    // 没有工具条时回落到 body，保持本函数单独可用。
+    const topbar = document.getElementById('heo-topbar');
+    (topbar || document.body).appendChild(btn);
   },
-  
+
+  /**
+   * 把「显示 + 播放」类设置应用到播放器实例。
+   * 面板里任何一项变化都会重新走一遍这里，所以每个分支都写成幂等的 ——
+   * 重复执行不会产生副作用（不会重复播放、不会叠加监听）。
+   */
+  applyPlayerSettings: function (pl) {
+    pl = pl || (typeof ap !== 'undefined' && ap ? ap : null);
+    if (!pl) return;
+
+    // ① 歌词面板：复用 APlayer 自带的 aplayer-lrc-hide 类
+    //    （APlayer.css 里已有 `.aplayer-lrc.aplayer-lrc-hide { display: none }`）
+    try {
+      const root = document.querySelector('.aplayer');
+      if (root) root.classList.toggle('aplayer-lrc-hide', !quiSetting('lyrics', true));
+    } catch (e) {}
+
+    // ② 音量：第二个参数 persist 固定传 false —— 记忆统一交给本项目的设置系统，
+    //    不让 APlayer 自己的 localStorage 与 QuiID 云同步两套数据打架。
+    try {
+      if (quiSetting('volumeMemory', true)) {
+        pl.volume(volume, false);
+      } else {
+        volume = 0.8;
+        try { localStorage.removeItem('metingjs'); } catch (e) {}   // 清掉 APlayer 存的旧音量
+        pl.volume(volume, false);
+      }
+    } catch (e) {}
+
+    // ③ 播放模式：APlayer 在切歌时实时读 options.order，所以运行时改这个值就能生效
+    try {
+      pl.options.order = quiSetting('order', 'random');
+    } catch (e) {}
+
+    // ④ 自动播放：只在首次应用时尝试一次。浏览器普遍要求先有用户交互，
+    //    被拒绝属正常现象，静默忽略即可（不弹错、不重试）。
+    if (!autoplayTried) {
+      autoplayTried = true;
+      if (quiSetting('autoplay', false)) {
+        try {
+          const p = pl.play();
+          if (p && typeof p.catch === 'function') p.catch(function () {});
+        } catch (e) {}
+      }
+    }
+  },
+
   // 新增方法：音乐可视化（Web Audio 频谱；跨域音频无数据时自动降级为程序动画）
   initVisualizer: function() {
     const page = document.getElementById('heoMusic-page');
@@ -423,6 +494,12 @@ var heo = {
       document.body.appendChild(coverBg);
     }
     function applyCoverBackground() {
+      // 「封面背景」开关关闭时撤下背景；不清空 backgroundImage，
+      // 这样重新打开时无需重新加载图片，立即就能显示。
+      if (!quiSetting('coverBg', true)) {
+        coverBg.classList.remove('show');
+        return;
+      }
       const cover = getCoverUrl();
       if (!cover) return;
       coverBg.style.backgroundImage = 'url("' + cover + '")';
@@ -459,6 +536,8 @@ var heo = {
     // 已确认直连失败的封面地址会被记录，避免同一封面反复白试一次直连。
     const coverDirectFailed = {};
     function extractCoverColor() {
+      // 「封面取色」关闭时直接返回：不发起任何取色请求（取色要下载图片，是有实打实网络开销的）
+      if (!quiSetting('coverColor', true)) return;
       const cover = getCoverUrl();
       if (!cover || cover === coverColorUrl) return;
       coverColorUrl = cover;
@@ -603,7 +682,12 @@ var heo = {
       c.restore();
     }
 
+    // 可视化是否在跑。关闭时不再排下一帧，也不做任何绘制 —— 这是这个开关省电的关键，
+    // 仅靠 CSS 隐藏 canvas 的话 rAF 仍会每秒跑 60 次。
+    let visRunning = false;
+
     function draw() {
+      if (!visRunning) return;
       requestAnimationFrame(draw);
       const w = canvas.width, h = canvas.height;
       ctx.clearRect(0, 0, w, h);
@@ -650,7 +734,24 @@ var heo = {
       renderBars(ctx, w, h, amps, false);
       renderBars(topCtx, topCanvas.width, topCanvas.height, amps, true);
     }
-    draw();
+
+    /**
+     * 应用「音乐可视化」开关。
+     * 用状态比较防重入：draw() 内部会自我排帧，重复调用会跑出两条循环。
+     */
+    function applyVisualizer(on) {
+      on = !!on;
+      if (on === visRunning) return;
+      visRunning = on;
+      document.body.classList.toggle('qui-hide-visualizer', !on);
+      if (on) {
+        draw();                                   // 启动 rAF 循环
+      } else {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        topCtx.clearRect(0, 0, topCanvas.width, topCanvas.height);
+      }
+    }
+    applyVisualizer(quiSetting('visualizer', true));
 
     function tryAttach() {
       if (attached) return;
@@ -665,6 +766,7 @@ var heo = {
           try { ap.audio.load(); } catch (e) {}
         }
         ensureAudio(player);
+        heo.applyPlayerSettings(player);            // 歌词 / 音量 / 播放模式 / 自动播放
         extractCoverColor();                       // 首曲封面取主色
         applyCoverBackground();                    // 首曲封面作背景
         player.on('play', function () {
@@ -677,11 +779,34 @@ var heo = {
           extractCoverColor();
           applyCoverBackground();
         });
+        // 音量变化写回设置。绑原生 volumechange 而不是 APlayer 事件，
+        // 因为拖音量条、按键盘、系统媒体键都会触发原生事件，覆盖面最全。
+        if (player.audio) {
+          player.audio.addEventListener('volumechange', function () {
+            if (!quiSetting('volumeMemory', true)) return;
+            volume = player.audio.volume;           // 同步给键盘快捷键用的那个变量
+            if (QS) QS.set('volume', volume);
+          });
+        }
       } else {
         setTimeout(tryAttach, 300);
       }
     }
     tryAttach();
+
+    // 把闭包内的两个应用函数挂到 heo 上，供下面的设置监听调用
+    // （coverColor / coverBg 的状态都活在本闭包里，外部改不到）
+    heo._applyVisualizer = applyVisualizer;
+    heo._applyCoverSettings = function () {
+      const wantColor = quiSetting('coverColor', true);
+      if (!wantColor) {
+        coverColor = null;          // 回到兜底柔紫色：draw() 每帧都读它，下一帧即生效
+      } else {
+        coverColorUrl = null;       // 允许对当前封面重新取一次色
+      }
+      applyCoverBackground();
+      if (wantColor) extractCoverColor();
+    };
   },
 
   // 初始化所有事件
@@ -690,6 +815,22 @@ var heo = {
     this.addHomeButton();
     this.initVisualizer();
     this.initScrollEvents();
+    this.applyPlayerSettings();
+
+    // 设置一变就实时生效：面板里切个开关、换个播放模式，不需要刷新页面。
+    // 监听的是 settings.js 广播的变更事件，云端同步下来的设置走的也是同一条路。
+    const self = this;
+    if (QS) {
+      QS.onChange(function () {
+        self.applyPlayerSettings();
+        if (typeof self._applyVisualizer === 'function') {
+          self._applyVisualizer(quiSetting('visualizer', true));
+        }
+        if (typeof self._applyCoverSettings === 'function') {
+          self._applyCoverSettings();
+        }
+      });
+    }
   }
 }
 
@@ -717,7 +858,7 @@ document.addEventListener("keydown", function (event) {
   if (event.keyCode === 38) {
     if (volume <= 1) {
       volume += 0.1;
-      ap.volume(volume, true);
+      ap.volume(volume, false);
 
     }
   }
@@ -725,7 +866,7 @@ document.addEventListener("keydown", function (event) {
   if (event.keyCode === 40) {
     if (volume >= 0) {
       volume += -0.1;
-      ap.volume(volume, true);
+      ap.volume(volume, false);
 
     }
   }

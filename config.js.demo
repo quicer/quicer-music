@@ -2,6 +2,11 @@ var userId = "13908245149";
 var userServer = "netease";
 var userType = "playlist";
 var homeUrl = "https://quicer.top"; // 右上角「主页」按钮跳转地址
+
+// QuiID 统一身份中心（设置面板里的登录/云同步）
+// clientId 已内置为 music，与 QuiID 后台登记的应用 id 对应，通常不用改。
+// 只有在 SDK 换了地址（比如本地调试）时才需要取消下面这行注释：
+// var quiidSdkUrl = "https://id.quicer.top/quiid.js";
 // var musicWorkerUrl = "https://heo-music.xxx.workers.dev"; // 真实频谱音频代理 Worker 地址；取消注释并填写后，频谱读真实音频数据（需先部署 music-worker.js 到 Cloudflare）
 // var localMusic = [{
 //     name: '重生之我在异乡为异客',

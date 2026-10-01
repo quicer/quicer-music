@@ -36,8 +36,85 @@
     <span>萌ICP备20252084号</span>
   </a>
 </div>
+<!-- 右上角工具条：设置按钮在此，「主页」按钮由 main.js 注入到同一容器 -->
+<div class="heo-topbar" id="heo-topbar">
+  <button class="heo-icon-btn" id="heo-settings-btn" type="button"
+          aria-label="打开设置" aria-expanded="false" aria-controls="heo-settings-panel">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+  </button>
+</div>
+
+<!-- 设置面板：结构静态写死，读写与同步逻辑全在 js/settings.js -->
+<div class="heo-settings-panel" id="heo-settings-panel" role="dialog" aria-label="设置" aria-hidden="true">
+  <div class="heo-panel-head">
+    <span class="heo-panel-title">设置</span>
+    <button class="heo-panel-close" id="heo-settings-close" type="button" aria-label="关闭设置">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.3 5.71 12 12.01l-6.3-6.3-1.41 1.41 6.3 6.3-6.3 6.29 1.41 1.42 6.3-6.3 6.3 6.3 1.41-1.42-6.3-6.29 6.3-6.3z"/></svg>
+    </button>
+  </div>
+
+  <div class="heo-panel-body">
+    <!-- 账号区由 settings.js 按登录态渲染 -->
+    <div class="heo-account" id="heo-account"></div>
+
+    <div class="heo-group">
+      <div class="heo-group-title">显示</div>
+
+      <label class="heo-row">
+        <span class="heo-row-label">音乐可视化<em>跟随音乐起伏的频谱</em></span>
+        <input type="checkbox" data-setting="visualizer">
+        <i class="heo-switch" aria-hidden="true"></i>
+      </label>
+
+      <label class="heo-row">
+        <span class="heo-row-label">歌词<em>滚动显示歌词面板</em></span>
+        <input type="checkbox" data-setting="lyrics">
+        <i class="heo-switch" aria-hidden="true"></i>
+      </label>
+
+      <label class="heo-row">
+        <span class="heo-row-label">封面背景<em>用当前封面做模糊背景</em></span>
+        <input type="checkbox" data-setting="coverBg">
+        <i class="heo-switch" aria-hidden="true"></i>
+      </label>
+
+      <label class="heo-row">
+        <span class="heo-row-label">封面取色<em>频谱颜色跟随封面主色</em></span>
+        <input type="checkbox" data-setting="coverColor">
+        <i class="heo-switch" aria-hidden="true"></i>
+      </label>
+    </div>
+
+    <div class="heo-group">
+      <div class="heo-group-title">播放</div>
+
+      <label class="heo-row">
+        <span class="heo-row-label">音量记忆<em>下次打开沿用上次音量</em></span>
+        <input type="checkbox" data-setting="volumeMemory">
+        <i class="heo-switch" aria-hidden="true"></i>
+      </label>
+
+      <label class="heo-row">
+        <span class="heo-row-label">自动播放<em>打开页面即开始播放</em></span>
+        <input type="checkbox" data-setting="autoplay">
+        <i class="heo-switch" aria-hidden="true"></i>
+      </label>
+
+      <div class="heo-row heo-row--col">
+        <span class="heo-row-label">播放模式<em>随机 / 顺序 / 单曲循环</em></span>
+        <div class="heo-seg" data-seg="order" role="group" aria-label="播放模式">
+          <button type="button" data-value="random">随机</button>
+          <button type="button" data-value="list">顺序</button>
+          <button type="button" data-value="single">单曲</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="./config.js"></script>
 <script src="./js/APlayer.min.js"></script>
+<script src="./js/settings.js"></script>
 <script async data-pjax src="./js/main.js"></script>
 <script>
 // 加载动画：当播放器 DOM（#heoMusic-page .aplayer）被插入时淡出遮罩

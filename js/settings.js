@@ -185,7 +185,12 @@
       try {
         SDK.init({
           clientId: QUIID_APP_ID,
-          redirectUri: location.origin + location.pathname
+          redirectUri: location.origin + location.pathname,
+          // apiBase 刻意不写死：留空时由 SDK 自行推导（当前默认 https://id.quicer.top，
+          // 与其它子项目保持一致）。需要指向别的环境时，在 config.js 里加一行
+          // `var quiidApiBase = "https://..."` 覆盖即可，不用动本文件。
+          apiBase: (typeof global.quiidApiBase !== 'undefined' && global.quiidApiBase)
+            ? global.quiidApiBase : undefined
         });
       } catch (e) {
         console.warn('[settings] QuiID 初始化失败', e);

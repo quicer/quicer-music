@@ -45,6 +45,7 @@
    * ---------------------------------------------------------- */
   var DEFAULTS = {
     visualizer: true,    // 音乐可视化（上下两条频谱）
+    visualizerStyle: 'ribbon', // 可视化样式：见 VIS_STYLE_VALUES，默认「绸带」
     lyrics: true,        // 歌词面板
     coverBg: true,       // 封面模糊背景
     coverColor: true,    // 从封面取主色（有网络请求，关掉省流量）
@@ -55,6 +56,12 @@
   };
 
   var ORDER_VALUES = ['list', 'random', 'single'];
+
+  /* 可视化样式的白名单。
+   * ★ 必须与 main.js 的 VIS_STYLES 键名一致 —— 那边画什么由这个字符串决定。
+   *   以后删掉某个样式时，老用户 localStorage / 云端里存的旧值会在这里被判为不可用，
+   *   自动回落默认值，不会出现「设置里选着一个已经不存在的样式」这种幽灵状态。 */
+  var VIS_STYLE_VALUES = ['ribbon', 'capsule', 'mirror', 'dots', 'ring', 'forest'];
 
   var state = {};
   var listeners = [];
@@ -99,6 +106,9 @@
     }
     if (key === 'order') {
       return ORDER_VALUES.indexOf(value) >= 0 ? value : undefined;
+    }
+    if (key === 'visualizerStyle') {
+      return VIS_STYLE_VALUES.indexOf(value) >= 0 ? value : undefined;
     }
     if (key === 'volume') {
       var n = parseFloat(value);
@@ -502,10 +512,21 @@
         if (wrap) wrap.classList.toggle('is-on', !!state[key]);
       }
     });
-    // 分段控件（播放模式）
-    var seg = document.querySelectorAll('[data-seg="order"] [data-value]');
-    Array.prototype.forEach.call(seg, function (b) {
-      b.classList.toggle('is-active', b.getAttribute('data-value') === state.order);
+    /* 分段控件：按各自的 data-seg 名回填高亮。
+     * ★ 以前这里写死了 '[data-seg="order"]'，加第二组分段控件（可视化样式）
+     *   就必须回来改这个函数 —— 改成通用遍历后，以后再加一组只需改
+     *   DEFAULTS 一行 + index.html 一段，这里不用动。
+     * 顺带补 aria-pressed：这一组是「多选一」的按钮，读屏需要知道当前选中哪个。 */
+    var groups = document.querySelectorAll('[data-seg]');
+    Array.prototype.forEach.call(groups, function (group) {
+      var key = group.getAttribute('data-seg');
+      if (!(key in DEFAULTS)) return;
+      var cur = state[key];
+      Array.prototype.forEach.call(group.querySelectorAll('[data-value]'), function (b) {
+        var on = b.getAttribute('data-value') === cur;
+        b.classList.toggle('is-active', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
     });
   }
 

@@ -1421,15 +1421,30 @@ var heo = {
     };
 
     const VIS_STYLE_KEYS = Object.keys(VIS_STYLES);
-    // 默认沿用原来的胶囊柱；`?vis=xxx` 可临时切换，用于挑皮肤（不写进设置）
-    let visStyle = (function () {
-      const v = String(params.get('vis') || '').toLowerCase();
-      return VIS_STYLES[v] ? v : 'capsule';
-    })();
+
+    /* 当前生效的样式。
+     * 来源是设置面板的「可视化样式」（settings.js 的 visualizerStyle，跟着 QuiID 云同步），
+     * 默认 ribbon（流动绸带）。
+     * ★ 这里一定要过白名单：用户本地 / 云端可能存着旧版本的值，
+     *   万一那个样式已经被删掉了，直接拿键名去查会取到 undefined，画面上就是一片空白。 */
+    function resolveStyle(name) {
+      return VIS_STYLES[name] ? name : 'ribbon';
+    }
+    let visStyle = resolveStyle(quiSetting('visualizerStyle', 'ribbon'));
 
     function renderVis(c, cw, ch, amps, aux) {
-      const fn = VIS_STYLES[visStyle] || VIS_STYLES.capsule;
+      const fn = VIS_STYLES[visStyle] || VIS_STYLES.ribbon;
       fn(c, cw, ch, amps, currentPalette(), aux);
+    }
+
+    /* 设置面板里换了样式 → 立刻切过来。
+     * 不用重启 rAF 循环：draw() 每帧都通过 renderVis 现查 visStyle，下一帧自然就换了。
+     * 只需要把画布清一下 —— 不清的话，上一套样式的图形会残留到下一帧，切换瞬间有鬼影。 */
+    function applyVisStyle(name) {
+      const next = resolveStyle(name);
+      if (next === visStyle) return;
+      visStyle = next;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
     }
 
     // 可视化是否在跑。关闭时不再排下一帧，也不做任何绘制 —— 这是这个开关省电的关键，
@@ -1609,9 +1624,10 @@ var heo = {
     }
     tryAttach();
 
-    // 把闭包内的两个应用函数挂到 heo 上，供下面的设置监听调用
-    // （coverColor / coverBg 的状态都活在本闭包里，外部改不到）
+    // 把闭包内的三个应用函数挂到 heo 上，供下面的设置监听调用
+    // （coverColor / coverBg / visStyle 的状态都活在本闭包里，外部改不到）
     heo._applyVisualizer = applyVisualizer;
+    heo._applyVisStyle = applyVisStyle;
     heo._applyCoverSettings = function () {
       const wantColor = quiSetting('coverColor', true);
       if (!wantColor) {
@@ -1623,17 +1639,17 @@ var heo = {
       if (wantColor) extractCoverColor();
     };
 
-    /* ---- 挑皮肤用的调试钩子 ----
+    /* ---- 可视化样式的调试钩子 ----
      * heo._visStyles()          列出全部样式名
-     * heo._visPreview('ribbon') 用一段**模拟频谱**把某一套样式画成一帧
+     * heo._visPreview('mirror') 用一段**模拟频谱**把某一套样式画成一帧
      *
-     * 为什么需要它：可视化必须登录 QuiID 才启用（见 applyVisualizer），
-     * 所以在没有登录态的本地环境里完全没法比对几套皮肤长什么样 ——
-     * 这个钩子绕开登录与播放状态，直接把一帧画到画布上。
-     * 生产环境里用户不会去调它，正常路径仍然是 draw() 里逐帧调 renderVis()。 */
+     * 为什么保留它：可视化必须登录 QuiID 才启用（见 applyVisualizer），
+     * 在没有登录态的本地环境里（自动化截图、排查「这块空白是不是没画」）
+     * 完全没法验证它到底能不能画、画成什么样 —— 这个钩子绕开登录与播放状态，
+     * 直接把一帧画到画布上。正常路径仍然是 draw() 里逐帧调 renderVis()。 */
     heo._visStyles = function () { return VIS_STYLE_KEYS.slice(); };
     heo._visPreview = function (name, phase) {
-      const key = VIS_STYLES[name] ? name : visStyle;
+      const key = name ? resolveStyle(name) : visStyle;
       const t = typeof phase === 'number' ? phase : 0.7;
       const demo = new Array(BAR_COUNT);
       const mid = (BAR_COUNT - 1) / 2;
@@ -2073,6 +2089,9 @@ var heo = {
         self.applyPlayerSettings();
         if (typeof self._applyVisualizer === 'function') {
           self._applyVisualizer(quiSetting('visualizer', true));
+        }
+        if (typeof self._applyVisStyle === 'function') {
+          self._applyVisStyle(quiSetting('visualizerStyle', 'ribbon'));
         }
         if (typeof self._applyCoverSettings === 'function') {
           self._applyCoverSettings();

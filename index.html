@@ -73,6 +73,25 @@
         <i class="heo-switch" aria-hidden="true"></i>
       </label>
 
+      <!-- 可视化样式：6 选 1，默认「绸带」。
+           值的读写/持久化/云同步全部由 settings.js 的 visualizerStyle 负责，
+           这里只需 data-seg 的 key 与 DEFAULTS 里同名即可。
+           6 项在 300px 宽的面板里一行放不下，用 .heo-seg--grid 排成两行三列。 -->
+      <div class="heo-row heo-row--col" id="heo-row-vis-style">
+        <span class="heo-row-label">
+          可视化样式
+          <em class="heo-row-desc">挑一个顺眼的频谱形状</em>
+        </span>
+        <div class="heo-seg heo-seg--grid" data-seg="visualizerStyle" role="group" aria-label="可视化样式">
+          <button type="button" data-value="ribbon">绸带</button>
+          <button type="button" data-value="capsule">柱状</button>
+          <button type="button" data-value="mirror">镜像</button>
+          <button type="button" data-value="dots">波点</button>
+          <button type="button" data-value="ring">圆环</button>
+          <button type="button" data-value="forest">森林</button>
+        </div>
+      </div>
+
       <label class="heo-row">
         <span class="heo-row-label">
           歌词

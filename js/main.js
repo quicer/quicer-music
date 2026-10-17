@@ -1083,6 +1083,21 @@ var heo = {
       return c ? s / c : 0;
     }
 
+    /* 控制条占掉了屏幕底部多少高度。
+     * ★★★ 为什么必须算这个：画布是 `position: fixed; bottom: 0; height: 220px`，
+     *   而播放控制条（进度条 + 时间 + 圆钮）压在它上面 —— 实测桌面 1280×720 时
+     *   控制条从 y=622 一直到底，**画布 220px 里有 98px 是根本看不见的**，
+     *   只剩上面 122px 可用。结果就是所有频谱都被压在底部、被控制条切掉一截，
+     *   看着又挤又矮（这也是「可视化不好看」的一大来源）。
+     *   现在改成把画布整体抬到控制条上沿，220px 全部可见。 */
+    function controlBarInset() {
+      const ctrl = document.querySelector('#heoMusic-page .aplayer-controller');
+      if (!ctrl) return 0;
+      const r = ctrl.getBoundingClientRect();
+      if (!r.height) return 0;                   // 播放器还没建出来 / 被隐藏
+      return Math.max(0, Math.round(window.innerHeight - r.top));
+    }
+
     function resize() {
       // 响应式高度：手机（<768px）更矮，桌面 220px，避免遮挡
       const cssW = window.innerWidth;
@@ -1091,6 +1106,8 @@ var heo = {
       canvas.height = cssH * dpr;
       canvas.style.width = cssW + 'px';
       canvas.style.height = cssH + 'px';
+      // 抬到控制条上沿；拿不到控制条（还没初始化）就先贴着底
+      canvas.style.bottom = controlBarInset() + 'px';
     }
     resize();
     window.addEventListener('resize', resize);
@@ -1123,29 +1140,81 @@ var heo = {
       }
     }
 
-    // 画一组胶囊柱状：从画布底部向上长
-    function renderBars(c, cw, ch, amps) {
+    /* ============================================================
+     *  可视化皮肤（样式）
+     *
+     *  每个样式都是一个**纯绘制函数**，签名统一：
+     *    fn(c, cw, ch, amps, pal, aux)
+     *      c    2D context
+     *      cw/ch 画布像素宽高（已乘 dpr）
+     *      amps  长度 BAR_COUNT 的 0..1 振幅（已平滑，不做归一化）
+     *      pal   { base, lite, soft }，由封面主色生成
+     *      aux   { dpr, t(秒), playing }
+     *
+     *  只负责「把这一帧画完」：频谱取样、帧间平滑、性能监测全部在 draw() 里
+     *  统一处理 —— 所以加一套新皮肤不用碰任何别的地方，也不会影响掉帧判定。
+     *
+     *  ★ 选哪套由 `visStyle` 决定，默认 capsule；
+     *    调试时可用 `?vis=ribbon` 之类的 URL 参数临时覆盖（不写进设置）。
+     * ============================================================ */
+    const VIS_STYLES = {};
+
+    // 当前调色板：拿到封面主色就用主色，否则用兜底柔紫（{r:167,g:139,b:250}）
+    function currentPalette() {
+      const base = coverColor || { r: 167, g: 139, b: 250 };
+      return { base: base, lite: lighten(base, 0.45), soft: lighten(base, 0.74) };
+    }
+
+    // 把 BAR_COUNT 个振幅重采样到 n 个（细柱 / 点阵这类样式需要的根数更多或更少）
+    function ampAt(amps, n, i) {
+      const len = amps.length;
+      if (n === len) return amps[i];
+      const x = i * (len - 1) / Math.max(1, n - 1);
+      const i0 = Math.floor(x);
+      const i1 = Math.min(len - 1, i0 + 1);
+      const f = x - i0;
+      return amps[i0] * (1 - f) + amps[i1] * f;
+    }
+
+    // 平滑折线（二次贝塞尔中点法）。reverse=true 时倒着走，用于缝合闭合区域。
+    function smoothTo(c, pts, reverse) {
+      const n = pts.length;
+      if (!n) return;
+      if (reverse) {
+        c.lineTo(pts[n - 1].x, pts[n - 1].y);
+        for (let i = n - 2; i >= 1; i--) {
+          c.quadraticCurveTo(pts[i].x, pts[i].y, (pts[i].x + pts[i - 1].x) / 2, (pts[i].y + pts[i - 1].y) / 2);
+        }
+        c.lineTo(pts[0].x, pts[0].y);
+      } else {
+        c.lineTo(pts[0].x, pts[0].y);
+        for (let i = 1; i < n - 1; i++) {
+          c.quadraticCurveTo(pts[i].x, pts[i].y, (pts[i].x + pts[i + 1].x) / 2, (pts[i].y + pts[i + 1].y) / 2);
+        }
+        c.lineTo(pts[n - 1].x, pts[n - 1].y);
+      }
+    }
+
+    /* ---- ① capsule：胶囊柱，从底部向上长（原样式，保留作基准） ---- */
+    VIS_STYLES.capsule = function (c, cw, ch, amps, pal, aux) {
+      const dpr = aux.dpr;
       const N = amps.length;
       const gap = 3 * dpr;
       const barW = (cw - gap * (N + 1)) / N;
-      const maxH = ch; // 不封顶，允许柱子自然长到画布边缘甚至溢出
       const minBar = 2 * dpr;
-      const base = coverColor || { r: 167, g: 139, b: 250 };
-      const lite = lighten(base, 0.45);
-      // 横向渐变：主色→提亮→主色（中间最亮，呼应对称）
       const grad = c.createLinearGradient(0, 0, cw, 0);
-      grad.addColorStop(0.0, rgba(base, 0.95));
-      grad.addColorStop(0.5, rgba(lite, 0.6));
-      grad.addColorStop(1.0, rgba(base, 0.95));
+      grad.addColorStop(0.0, rgba(pal.base, 0.95));
+      grad.addColorStop(0.5, rgba(pal.lite, 0.6));
+      grad.addColorStop(1.0, rgba(pal.base, 0.95));
       c.save();
       c.fillStyle = grad;
-      c.shadowColor = rgba(base, 0.7);
+      c.shadowColor = rgba(pal.base, 0.7);
       c.shadowBlur = 6 * dpr;
       for (let i = 0; i < N; i++) {
         const x = gap + i * (barW + gap);
-        const bh = Math.max(minBar, amps[i] * maxH);
-        const y = ch - bh;                     // 从底部向上长
-        const r = Math.min(barW / 2, bh / 2);  // 胶囊两端圆角
+        const bh = Math.max(minBar, amps[i] * ch);
+        const y = ch - bh;
+        const r = Math.min(barW / 2, bh / 2);
         c.beginPath();
         c.moveTo(x + r, y);
         c.arcTo(x + barW, y, x + barW, y + bh, r);
@@ -1156,6 +1225,211 @@ var heo = {
         c.fill();
       }
       c.restore();
+    };
+
+    /* ---- ② ribbon：一条流动的绸带（上下不对称，下半更薄） ---- */
+    VIS_STYLES.ribbon = function (c, cw, ch, amps, pal, aux) {
+      const dpr = aux.dpr;
+      const N = amps.length;
+      const midY = ch * 0.52;
+      const maxA = ch * 0.42;
+      const stepX = cw / (N - 1);
+      const up = [], down = [];
+      for (let i = 0; i < N; i++) {
+        const v = amps[i];
+        const h = Math.max(1.5 * dpr, v * maxA);
+        up.push({ x: i * stepX, y: midY - h });
+        // 下半高度只取 0.62：完全镜像会像倒影，稍微薄一点更像「有厚度的绸带」
+        down.push({ x: i * stepX, y: midY + Math.max(1.5 * dpr, v * maxA * 0.62) });
+      }
+      const band = c.createLinearGradient(0, midY - maxA, 0, midY + maxA * 0.7);
+      band.addColorStop(0.0, rgba(pal.lite, 0.66));
+      band.addColorStop(0.45, rgba(pal.base, 0.26));
+      band.addColorStop(1.0, rgba(pal.lite, 0.52));
+      c.save();
+      c.beginPath();
+      c.moveTo(up[0].x, up[0].y);
+      smoothTo(c, up, false);
+      smoothTo(c, down, true);
+      c.closePath();
+      c.fillStyle = band;
+      c.fill();
+      // 下沿一道很淡的反光线：让绸带看起来是「一片」而不是一条线
+      c.beginPath();
+      c.moveTo(down[0].x, down[0].y);
+      smoothTo(c, down, false);
+      c.strokeStyle = rgba(pal.lite, 0.34);
+      c.lineWidth = 1 * dpr;
+      c.stroke();
+      // 上沿高光线（整个样式的「记忆点」就在这里）
+      c.beginPath();
+      c.moveTo(up[0].x, up[0].y);
+      smoothTo(c, up, false);
+      c.strokeStyle = rgba(pal.soft, 0.95);
+      c.lineWidth = 2 * dpr;
+      c.shadowColor = rgba(pal.base, 0.9);
+      c.shadowBlur = 18 * dpr;
+      c.stroke();
+      c.restore();
+    };
+
+    /* ---- ③ mirror：以水平中线为轴的镜像细柱 ---- */
+    VIS_STYLES.mirror = function (c, cw, ch, amps, pal, aux) {
+      const dpr = aux.dpr;
+      const barW = 2 * dpr;
+      const gapPx = 3 * dpr;
+      const n = Math.max(8, Math.floor(cw / (barW + gapPx)));
+      const midY = ch * 0.5;
+      const maxA = ch * 0.44;
+      const totalW = n * barW + (n - 1) * gapPx;
+      const x0 = (cw - totalW) / 2;
+      const grad = c.createLinearGradient(0, 0, cw, 0);
+      grad.addColorStop(0.0, rgba(pal.base, 0.80));
+      grad.addColorStop(0.5, rgba(pal.soft, 0.95));
+      grad.addColorStop(1.0, rgba(pal.base, 0.80));
+      c.save();
+      c.fillStyle = grad;
+      c.shadowColor = rgba(pal.base, 0.5);
+      c.shadowBlur = 5 * dpr;
+      for (let i = 0; i < n; i++) {
+        const v = ampAt(amps, n, i);
+        const h = Math.max(1.5 * dpr, v * maxA);
+        const x = x0 + i * (barW + gapPx);
+        c.fillRect(x, midY - h, barW, h);
+        c.fillRect(x, midY + dpr, barW, h * 0.55);   // 下镜像略短，避免像「倒影照抄」
+      }
+      c.restore();
+    };
+
+    /* ---- ④ dots：一溜星尘，振幅决定半径与亮度 ---- */
+    VIS_STYLES.dots = function (c, cw, ch, amps, pal, aux) {
+      const dpr = aux.dpr;
+      const n = 48;
+      const midY = ch * 0.62;
+      const maxA = ch * 0.46;
+      const stepX = cw / (n - 1);
+      const pts = [];
+      for (let i = 0; i < n; i++) {
+        const v = ampAt(amps, n, i);
+        pts.push({ x: i * stepX, y: midY - v * maxA, v: v });
+      }
+      // 先铺一条极淡的连线，把散落的点「串」成一条波 —— 没有它整排点会显得很散
+      c.save();
+      c.beginPath();
+      c.moveTo(pts[0].x, pts[0].y);
+      smoothTo(c, pts, false);
+      c.strokeStyle = rgba(pal.lite, 0.30);
+      c.lineWidth = 1 * dpr;
+      c.stroke();
+      // 再画点：半径与亮度都随振幅走
+      for (let i = 0; i < n; i++) {
+        const p = pts[i];
+        const v = p.v;
+        const r = (1.2 + v * 4.6) * dpr;
+        const a = 0.22 + v * 0.78;
+        c.beginPath();
+        c.arc(p.x, p.y, r, 0, Math.PI * 2);
+        c.fillStyle = rgba(v > 0.55 ? pal.soft : pal.lite, a);
+        c.shadowColor = rgba(pal.base, a * 0.9);
+        c.shadowBlur = (4 + v * 12) * dpr;
+        c.fill();
+      }
+      c.restore();
+    };
+
+    /* ---- ⑤ ring：底部中央的半圆环，柱子沿弧线向外放射 ---- */
+    VIS_STYLES.ring = function (c, cw, ch, amps, pal, aux) {
+      const dpr = aux.dpr;
+      const N = 64;
+      const cx = cw / 2;
+      const cy = ch * 1.0;           // 圆心压在画布下沿 → 只露出上半弧
+      const R = ch * 0.60;
+      const maxLen = ch * 0.34;
+      // 弧内一层很淡的穹顶光：没有它，几条放射线会显得「飘」在背景上
+      const dome = c.createRadialGradient(cx, cy, R * 0.15, cx, cy, R);
+      dome.addColorStop(0, rgba(pal.base, 0.20));
+      dome.addColorStop(0.75, rgba(pal.base, 0.07));
+      dome.addColorStop(1, rgba(pal.base, 0));
+      c.save();
+      c.beginPath();
+      c.arc(cx, cy, R, Math.PI, Math.PI * 2);
+      c.closePath();
+      c.fillStyle = dome;
+      c.fill();
+      c.lineCap = 'round';
+      // 参考弧：让「频谱是绕着圆环长出来的」这层关系看得出来
+      c.beginPath();
+      c.arc(cx, cy, R, Math.PI, Math.PI * 2);
+      c.lineWidth = 1 * dpr;
+      c.strokeStyle = rgba(pal.lite, 0.38);
+      c.stroke();
+      const grad = c.createLinearGradient(0, cy - R - maxLen, 0, cy);
+      grad.addColorStop(0, rgba(pal.soft, 0.98));
+      grad.addColorStop(1, rgba(pal.base, 0.4));
+      c.strokeStyle = grad;
+      c.shadowColor = rgba(pal.base, 0.65);
+      c.shadowBlur = 9 * dpr;
+      for (let i = 0; i < N; i++) {
+        const v = ampAt(amps, N, i);
+        const ang = Math.PI + (i / (N - 1)) * Math.PI;
+        const len = 2 * dpr + v * maxLen;
+        const ca = Math.cos(ang), sa = Math.sin(ang);
+        c.beginPath();
+        c.lineWidth = 2.2 * dpr;
+        c.moveTo(cx + ca * R, cy + sa * R);
+        c.lineTo(cx + ca * (R + len), cy + sa * (R + len));
+        c.stroke();
+      }
+      c.restore();
+    };
+
+    /* ---- ⑥ forest：细线森林，越往上越亮，顶端一点星 ---- */
+    VIS_STYLES.forest = function (c, cw, ch, amps, pal, aux) {
+      const dpr = aux.dpr;
+      const n = Math.max(40, Math.floor(cw / (5 * dpr)));
+      const stepX = cw / n;
+      const maxA = ch * 0.92;
+      // ★ 只建一条纵向渐变给所有线共用（按绝对坐标取色）——
+      //   每根线各建一个渐变的话，一帧就是上百个渐变对象，白烧 CPU。
+      const grad = c.createLinearGradient(0, ch, 0, 0);
+      grad.addColorStop(0.0, rgba(pal.base, 0.10));
+      grad.addColorStop(0.55, rgba(pal.base, 0.62));
+      grad.addColorStop(1.0, rgba(pal.soft, 0.98));
+      c.save();
+      c.lineWidth = 1.2 * dpr;
+      c.strokeStyle = grad;
+      for (let i = 0; i < n; i++) {
+        const v = ampAt(amps, n, i);
+        const h = Math.max(2 * dpr, v * maxA);
+        const x = i * stepX + stepX / 2;
+        c.beginPath();
+        c.moveTo(x, ch);
+        c.lineTo(x, ch - h);
+        c.stroke();
+      }
+      // 顶端亮点单独一遍：避免每次 stroke 都重设 fillStyle
+      c.fillStyle = rgba(pal.soft, 0.9);
+      for (let i = 0; i < n; i++) {
+        const v = ampAt(amps, n, i);
+        const h = Math.max(2 * dpr, v * maxA);
+        if (v < 0.3) continue;                  // 太矮的线不点灯，免得看着像噪点
+        c.beginPath();
+        c.arc(i * stepX + stepX / 2, ch - h, 1.2 * dpr, 0, Math.PI * 2);
+        c.fill();
+      }
+      c.restore();
+    };
+
+    const VIS_STYLE_KEYS = Object.keys(VIS_STYLES);
+    // 默认沿用原来的胶囊柱；`?vis=xxx` 可临时切换，用于挑皮肤（不写进设置）
+    let visStyle = (function () {
+      const v = String(params.get('vis') || '').toLowerCase();
+      return VIS_STYLES[v] ? v : 'capsule';
+    })();
+
+    function renderVis(c, cw, ch, amps, aux) {
+      const fn = VIS_STYLES[visStyle] || VIS_STYLES.capsule;
+      fn(c, cw, ch, amps, currentPalette(), aux);
     }
 
     // 可视化是否在跑。关闭时不再排下一帧，也不做任何绘制 —— 这是这个开关省电的关键，
@@ -1258,8 +1532,8 @@ var heo = {
         const v = Math.min(255, smoothed[i]) / 255;
         amps[i] = Math.pow(v, 0.9) * VIS_GAIN;
       }
-      // 只渲染底部这一条频谱
-      renderBars(ctx, w, h, amps);
+      // 交给当前选中的皮肤去画（capsule / ribbon / mirror / dots / ring / forest）
+      renderVis(ctx, w, h, amps, { dpr: dpr, t: now, playing: !!playing });
     }
 
     /**
@@ -1298,6 +1572,7 @@ var heo = {
       if (typeof ap !== 'undefined' && ap && ap.audio) {
         player = ap;
         attached = true;
+        resize();       // 播放器已就位 → 重新量一次控制条高度，把画布抬到它上沿
         // 仅当启用音频代理 Worker 时，为音频打上 CORS 标记，Web Audio 才能读到真实频谱（否则会被静音）。
         // 重新 load() 使刚设置的 crossOrigin 在首次加载（尚未播放）时即生效，几乎无感。
         // 注意：默认（未填 musicWorkerUrl）模式下绝不能设 crossOrigin，否则 zhheo CDN 无 CORS 头会导致音频被拦截、无声。
@@ -1346,6 +1621,33 @@ var heo = {
       }
       applyCoverBackground();
       if (wantColor) extractCoverColor();
+    };
+
+    /* ---- 挑皮肤用的调试钩子 ----
+     * heo._visStyles()          列出全部样式名
+     * heo._visPreview('ribbon') 用一段**模拟频谱**把某一套样式画成一帧
+     *
+     * 为什么需要它：可视化必须登录 QuiID 才启用（见 applyVisualizer），
+     * 所以在没有登录态的本地环境里完全没法比对几套皮肤长什么样 ——
+     * 这个钩子绕开登录与播放状态，直接把一帧画到画布上。
+     * 生产环境里用户不会去调它，正常路径仍然是 draw() 里逐帧调 renderVis()。 */
+    heo._visStyles = function () { return VIS_STYLE_KEYS.slice(); };
+    heo._visPreview = function (name, phase) {
+      const key = VIS_STYLES[name] ? name : visStyle;
+      const t = typeof phase === 'number' ? phase : 0.7;
+      const demo = new Array(BAR_COUNT);
+      const mid = (BAR_COUNT - 1) / 2;
+      for (let i = 0; i < BAR_COUNT; i++) {
+        const env = Math.cos((i / (BAR_COUNT - 1) - 0.5) * Math.PI);
+        const wob = 0.5 + 0.5 * Math.sin(t * 6.3 + i * 0.41) * Math.sin(t * 2.7 + i * 0.19);
+        // 左右相位不同，和真实的 barValue() 一样做成不对称，预览才像真机
+        const skew = i < mid ? 1 : 0.78;
+        demo[i] = Math.max(0.05, env * wob * skew * 1.25);
+      }
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      VIS_STYLES[key](ctx, canvas.width, canvas.height, demo, currentPalette(),
+        { dpr: dpr, t: t, playing: true });
+      return key;
     };
   },
 
@@ -1780,31 +2082,49 @@ var heo = {
   }
 }
 
+/* ★★★ 2026-10-17 修「播放器没建出来时按快捷键/改窗口尺寸就报错」
+ *
+ * `ap` 这个全局**只有 Meting.js 成功 `new APlayer()` 之后才会挂在 window 上**
+ * （见 Meting.js 的 `window.ap = this.aplayer`）。而歌单加载失败时走的是
+ * Meting._renderFail()，播放器根本不存在 —— 此时下面这些裸写的 `ap.xxx`
+ * 全部会抛 `ReferenceError: ap is not defined`，一次按键 / 一次窗口缩放就一条。
+ *
+ * 典型案例：换歌单面板里选「歌手 + 酷我」这种接口不支持的组合 →
+ * 页面提示「没取到歌单」→ 用户随手按空格想暂停（其实没歌可放）→ 控制台报错。
+ *
+ * 统一入口：所有对播放器的访问都从这里拿，拿不到就**安静地什么都不做**
+ * （播放器都没有，本来也没有「切歌」「调音量」可言）。
+ * 本文件别处（patchListScroll / initPlaylistExtras）早就是这个写法，这里补齐。 */
+function getPlayer() {
+  return (typeof window.ap !== 'undefined' && window.ap) ? window.ap : null;
+}
+
 //空格控制音乐
 document.addEventListener("keydown", function (event) {
+  const player = getPlayer();
   //暂停开启音乐
   if (event.code === "Space") {
     event.preventDefault();
-    ap.toggle();
+    if (player) player.toggle();
 
   };
   //切换下一曲
   if (event.keyCode === 39) {
     event.preventDefault();
-    ap.skipForward();
+    if (player && player.list) player.skipForward();
 
   };
   //切换上一曲
   if (event.keyCode === 37) {
     event.preventDefault();
-    ap.skipBack();
+    if (player && player.list) player.skipBack();
 
   }
   //增加音量
   if (event.keyCode === 38) {
     if (volume <= 1) {
       volume += 0.1;
-      ap.volume(volume, false);
+      if (player) player.volume(volume, false);
 
     }
   }
@@ -1812,7 +2132,7 @@ document.addEventListener("keydown", function (event) {
   if (event.keyCode === 40) {
     if (volume >= 0) {
       volume += -0.1;
-      ap.volume(volume, false);
+      if (player) player.volume(volume, false);
 
     }
   }
@@ -1820,10 +2140,12 @@ document.addEventListener("keydown", function (event) {
 
 // 监听窗口大小变化
 window.addEventListener('resize', function() {
+  const player = getPlayer();
+  if (!player || !player.list) return;   // 播放器还没建出来（歌单加载失败）→ 无事可做
   if (window.innerWidth > 768) {
-    ap.list.show();
+    player.list.show();
   } else {
-    ap.list.hide();
+    player.list.hide();
   }
 
 });

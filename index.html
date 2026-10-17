@@ -37,6 +37,10 @@
 </div>
 <!-- 右上角工具条：设置按钮在此，「主页」按钮由 main.js 注入到同一容器 -->
 <div class="heo-topbar" id="heo-topbar">
+  <button class="heo-icon-btn" id="heo-jump-btn" type="button"
+          aria-label="更换歌单或单曲" aria-expanded="false" aria-controls="qui-jump-panel">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18a3 3 0 0 0 0 6 3 3 0 0 0 3-3V8h3V6h-5z"/></svg>
+  </button>
   <button class="heo-icon-btn" id="heo-settings-btn" type="button"
           aria-label="打开设置" aria-expanded="false" aria-controls="heo-settings-panel">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
@@ -144,6 +148,64 @@
     </div>
   </div>
 </div>
+
+<!-- 换歌单面板：平台 / 类型 / ID → 带参数跳转。逻辑在 main.js 的 initJumpPanel -->
+<div class="qui-jump" id="qui-jump-panel" role="dialog" aria-label="更换歌单或单曲" aria-hidden="true">
+  <div class="heo-panel-head">
+    <span class="heo-panel-title">换歌单</span>
+    <button class="heo-panel-close" id="qui-jump-close" type="button" aria-label="关闭换歌单面板">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18.3 5.71 12 12.01l-6.3-6.3-1.41 1.41 6.3 6.3-6.3 6.29 1.41 1.42 6.3-6.3 6.3 6.3 1.41-1.42-6.3-6.29 6.3-6.3z"/></svg>
+    </button>
+  </div>
+
+  <div class="heo-panel-body">
+    <p class="qui-jump-tip">选好平台和类型，填 ID 或直接粘贴分享链接</p>
+
+    <label class="qui-jump-row">
+      <span class="qui-jump-label">平台</span>
+      <span class="qui-jump-field">
+        <select id="qui-jump-server">
+          <option value="netease">网易云音乐</option>
+          <option value="tencent">QQ 音乐</option>
+          <option value="kugou">酷狗音乐</option>
+          <option value="kuwo">酷我音乐</option>
+          <option value="baidu">百度音乐</option>
+        </select>
+      </span>
+    </label>
+
+    <label class="qui-jump-row">
+      <span class="qui-jump-label">类型</span>
+      <span class="qui-jump-field">
+        <select id="qui-jump-type">
+          <option value="playlist">歌单</option>
+          <option value="song">单曲</option>
+          <option value="album">专辑</option>
+          <option value="artist">歌手</option>
+        </select>
+      </span>
+    </label>
+
+    <label class="qui-jump-row">
+      <span class="qui-jump-label">ID</span>
+      <span class="qui-jump-field">
+        <input id="qui-jump-id" type="text" inputmode="text" autocomplete="off"
+               autocapitalize="off" autocorrect="off" spellcheck="false"
+               placeholder="歌单 / 单曲 ID 或链接">
+      </span>
+    </label>
+
+    <p class="qui-jump-msg" id="qui-jump-msg" aria-live="polite"></p>
+
+    <div class="qui-jump-actions">
+      <button type="button" class="heo-btn-primary" id="qui-jump-go">跳转</button>
+      <button type="button" class="heo-btn-ghost" id="qui-jump-reset">默认歌单</button>
+    </div>
+  </div>
+</div>
+
+<!-- 轻提示：会员歌曲试听、操作反馈等，由 main.js 的 showQuiToast 控制 -->
+<div class="qui-toast" id="qui-toast" role="status" aria-live="polite"></div>
 
 <!-- 歌曲列表遮罩：手机端点它收起列表。由 main.js 控制 .is-open -->
 <div class="qui-list-backdrop" id="qui-list-backdrop" aria-hidden="true"></div>

@@ -17,6 +17,10 @@
  *    · 设置面板显隐开关是 .is-open 类（settings.js 控制）
  *    · 设置面板里 [data-setting] / [data-seg][data-value] 是 settings.js 的事件委托锚点
  *    · .heo-row 必须包住 input+checkbox 与 .heo-switch（CSS 用 ~ 兄弟选择器驱动开关）
+ *    · 换歌单面板 .qui-jump 的显隐同样是 .is-open 类（main.js 的 initJumpPanel）
+ *    · 轻提示 .qui-toast 的显隐是 .is-open 类（main.js 的 showQuiToast）
+ *    · 曲目行的「试听 30s」徽标 .qui-preview-badge 由 main.js **按需插入**，
+ *      HTML 里没有这个节点 —— 200 多行不预生成空节点
  * ============================================================ */
 
 
@@ -47,6 +51,12 @@
      跟随封面的表达交给背景层（模糊封面）与频谱画布去做。 */
   --qm-accent:      #7aa2ff;
   --qm-accent-soft: rgba(122, 162, 255, 0.18);
+
+  /* 「限制/提醒」色：会员试听徽标、失败提示等。
+     刻意不用强调蓝 —— 蓝色在本站代表「正在发生」，琥珀色才代表「有限制」。 */
+  --qm-warn:        #ffbe5c;
+  --qm-warn-soft:   rgba(255, 176, 74, 0.16);
+  --qm-warn-line:   rgba(255, 176, 74, 0.32);
 
   /* 毛玻璃 */
   --qm-blur:        blur(24px) saturate(1.5);
@@ -711,6 +721,42 @@ body.qui-hide-visualizer #heo-visualizer {
 #heoMusic-page ol > li .aplayer-list-cur,
 #heoMusic-page ol > li.aplayer-list-light .aplayer-list-cur {
   display: none;
+}
+
+/* ---- 「试听 30s」徽标 ----
+ * 由 main.js 的 ④ 段落**按需**插入到 <li> 末尾 —— 不在模板里预生成，
+ * 否则 200 多行每行都挂一个空节点，白白撑大 DOM。
+ * 插在 author 之后（行末）：title 是 flex:1 会把空间吃满，
+ * 放在中间的话徽标位置会随曲名长短乱跑。
+ *
+ * ★ 选择器里带上 `.aplayer-list`（= 多一个类），是为了压过
+ *     #heoMusic-page ol > li span                  ← (1,0,3) 通用文字色
+ *     #heoMusic-page ol > li.aplayer-list-light span ← (1,1,3) 高亮行文字色
+ *   本规则是 (1,2,1)，两条都盖得住。少了这个 `.aplayer-list`，
+ *   徽标在当前播放行上会变成普通白字（实测过，颜色会丢）。 */
+#heoMusic-page .aplayer-list ol > li .qui-preview-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 17px;
+  padding: 0 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  color: var(--qm-warn);
+  background: var(--qm-warn-soft);
+  border: 1px solid var(--qm-warn-line);
+  border-radius: var(--qm-r-pill);
+}
+
+/* 带徽标的行：歌手名不再参与压缩。
+ * 不这么写的话，长曲名（如「甲乙丙丁 (你我怎么两清)」）会把行宽吃满，
+ * 一加徽标歌手名就被压成 0 宽直接消失（实测）。曲名本来就有省略号，让它去缩。
+ * 标记类由 main.js 的 applyBadge/removeBadge 加上/撤掉。 */
+#heoMusic-page ol > li.qui-has-preview span.aplayer-list-author {
+  flex: 0 0 auto;
 }
 
 
@@ -1629,6 +1675,219 @@ body > .heo-home-btn {
 
 
 /* ============================================================
+ *  ⑩-d 换歌单面板（.qui-jump）
+ *  平台 / 类型 / ID → 带参数跳转。逻辑见 main.js 的 initJumpPanel。
+ *  视觉与设置面板完全同源，所以复用 .heo-panel-head / .heo-panel-body /
+ *  .heo-panel-close / .heo-panel-title 这几个通用类，这里只写它独有的部分。
+ * ============================================================ */
+.qui-jump {
+  position: fixed;
+  top: 70px;
+  right: 20px;
+  z-index: 1200;
+  width: 300px;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  flex-direction: column;
+  color: var(--qm-text);
+  background: var(--qm-surface-2);
+  border: 1px solid var(--qm-line-2);
+  border-radius: var(--qm-r-lg);
+  box-shadow: var(--qm-shadow-lg);
+  -webkit-backdrop-filter: var(--qm-blur);
+  backdrop-filter: var(--qm-blur);
+  /* ★ 让原生下拉框也走暗色。不写这条的话，Chrome / Safari 弹出的选项列表是白底黑字，
+     在深色界面里像贴了一张纸；同时也能让 select 的箭头在部分平台自动变浅色。 */
+  color-scheme: dark;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-10px) scale(0.98);
+  transform-origin: top right;
+  transition: opacity var(--qm-dur) var(--qm-ease),
+              transform var(--qm-dur) var(--qm-ease),
+              visibility var(--qm-dur);
+}
+
+.qui-jump.is-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: none;
+}
+
+.qui-jump-tip {
+  margin: 0 2px 12px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--qm-text-3);
+}
+
+.qui-jump-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.qui-jump-label {
+  flex: none;
+  width: 34px;
+  font-size: 12.5px;
+  color: var(--qm-text-2);
+}
+
+.qui-jump-field {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+}
+
+.qui-jump select,
+.qui-jump input {
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--qm-text);
+  background: var(--qm-surface-3);
+  border: 1px solid var(--qm-line-1);
+  border-radius: var(--qm-r-sm);
+  outline: 0;
+  /* 去掉各平台原生外观，保证深色底上有一致的样子 */
+  -webkit-appearance: none;
+  appearance: none;
+  transition: background var(--qm-dur) var(--qm-ease),
+              border-color var(--qm-dur) var(--qm-ease);
+}
+
+/* 自画下拉箭头：原生箭头在 appearance:none 之后会消失，
+   而 SVG 里写死的颜色不跟随主题变量，所以把透明度调到 55% 让它看起来是「次级信息」。 */
+.qui-jump select {
+  padding-right: 26px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23f4f5f8' fill-opacity='.55'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 14px 14px;
+}
+
+.qui-jump select:focus,
+.qui-jump input:focus {
+  background-color: var(--qm-surface-hi);
+  border-color: var(--qm-line-3);
+}
+
+.qui-jump input::placeholder {
+  color: var(--qm-text-3);
+}
+
+.qui-jump-msg {
+  margin: 0 2px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--qm-text-3);
+}
+
+/* 空着的时候不占高度（否则面板底部会多出一段莫名其妙的留白） */
+.qui-jump-msg:empty {
+  display: none;
+}
+
+.qui-jump-msg.is-error {
+  color: #ff8f8f;
+}
+
+.qui-jump-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+/* 覆盖 .heo-btn-primary / .heo-btn-ghost 的 flex:none，让两个按钮均分整行 */
+.qui-jump-actions > button {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+
+/* ============================================================
+ *  ⑩-e 轻提示（toast）
+ *  用于「这首是会员歌曲，只能试听 30 秒」这类**不需要用户确认**的告知。
+ *  与 .qui-modal 的分工：要用户点一下才继续的用 modal，只是通知就用 toast。
+ *  显隐靠 .is-open，由 main.js 的 showQuiToast() 控制。
+ * ============================================================ */
+.qui-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 128px;
+  z-index: 2600;
+  max-width: min(420px, calc(100vw - 48px));
+  padding: 10px 16px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--qm-text);
+  text-align: center;
+  background: var(--qm-surface-2);
+  border: 1px solid var(--qm-line-2);
+  border-radius: var(--qm-r-pill);
+  box-shadow: var(--qm-shadow-md);
+  -webkit-backdrop-filter: var(--qm-blur-sm);
+  backdrop-filter: var(--qm-blur-sm);
+  /* 永远不吃点击：提示压在控制条上方，不能挡住播放/进度条 */
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 8px);
+  transition: opacity 0.24s var(--qm-ease), transform 0.24s var(--qm-ease);
+}
+
+.qui-toast.is-open {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+
+/* ============================================================
+ *  ⑩-f 歌单加载失败
+ *  Meting.js 拿到「不是数组 / 空数组 / 请求异常」时渲染这块，
+ *  替代以前「什么都不显示、页面停在加载动画上」的空白。
+ * ============================================================ */
+.qui-load-fail {
+  /* #heoMusic-page 是 flex 纵列，这里用 flex:1 而不是 height:100% 才能撑满剩余空间 */
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+}
+
+.qui-load-fail-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--qm-text);
+}
+
+.qui-load-fail-sub {
+  max-width: 340px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--qm-text-3);
+  word-break: break-word;
+}
+
+.qui-load-fail .heo-btn-primary {
+  margin-top: 6px;
+}
+
+
+/* ============================================================
  *  ⑪ 加载动画
  * ============================================================ */
 #qui-loading {
@@ -2036,6 +2295,42 @@ body > .heo-home-btn {
     background: rgba(255, 255, 255, 0.24);
     border-radius: var(--qm-r-pill);
   }
+
+  /* ---- 换歌单面板同样改成底部抽屉 ----
+     上面那条 .heo-panel-head 规则没有限定在设置面板内，所以 .qui-jump 里的
+     面板头会自动带上顶部把手，这里只需要处理面板本身的定位。 */
+  .qui-jump {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto;
+    max-width: none;
+    border-radius: var(--qm-r-lg) var(--qm-r-lg) 0 0;
+    border-bottom: 0;
+    transform: translateY(16px);
+    transform-origin: bottom center;
+  }
+
+  .qui-jump.is-open {
+    transform: none;
+  }
+
+  /* iOS 上字号小于 16px 的输入框一聚焦就会把整页放大 */
+  .qui-jump input {
+    font-size: 16px;
+  }
+
+  /* 提示条挪到顶部居中：手机底部整条被控制条与列表抽屉占满了 */
+  .qui-toast {
+    top: 74px;
+    bottom: auto;
+    transform: translate(-50%, -8px);
+  }
+
+  .qui-toast.is-open {
+    transform: translate(-50%, 0);
+  }
 }
 
 /* ---------- 小屏再压一档 ---------- */
@@ -2060,6 +2355,14 @@ body > .heo-home-btn {
 
   #heoMusic-page .aplayer-time-inner {
     font-size: 11px;
+  }
+
+  /* 极窄屏上曲名 + 歌手 + 徽标挤在一行会非常局促，把徽标压到最小但仍可读。
+     ★ 选择器要和基础规则一样带 .aplayer-list，否则特异性更低、这几条会被基础规则盖掉。 */
+  #heoMusic-page .aplayer-list ol > li .qui-preview-badge {
+    height: 16px;
+    padding: 0 5px;
+    font-size: 9.5px;
   }
 }
 

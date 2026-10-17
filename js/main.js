@@ -116,6 +116,27 @@ function hideQuiModal() {
   box.setAttribute('aria-hidden', 'true');
 }
 
+/* ------------------------------------------------------------
+ *  轻提示（toast）
+ *  ------------------------------------------------------------
+ *  和 showQuiModal 的分工：
+ *    · modal  —— 需要用户点一下才能继续的（如「要不要关掉可视化」）
+ *    · toast  —— 只是告知，不打断操作的（如「这首只能试听 30 秒」）
+ *  连续调用只替换文案并重新计时，不会叠出好几个气泡。
+ * ---------------------------------------------------------- */
+var quiToastTimer = null;
+function showQuiToast(text, duration) {
+  var el = document.getElementById('qui-toast');
+  if (!el) return;
+  el.textContent = text || '';
+  el.classList.add('is-open');
+  if (quiToastTimer) clearTimeout(quiToastTimer);
+  quiToastTimer = setTimeout(function () {
+    quiToastTimer = null;
+    el.classList.remove('is-open');
+  }, duration || 3600);
+}
+
 /**
  * 「设备性能较差」提示。文案固定，按钮只做两件事：
  *   · 关闭可视化 —— 直接写设置（走 settings.js，会一并本地持久化 + 云同步）
@@ -337,7 +358,15 @@ var heo = {
   setMediaMetadata: function (aplayerObj, isSongPlaying) {
     const audio = aplayerObj.list.audios[aplayerObj.list.index]
     const coverUrl = audio.cover || './img/icon.webp';
-    const currentLrcContent = document.getElementById("heoMusic-page").querySelector(".aplayer-lrc-current").textContent;
+    /* ★ 2026-10-17 修复崩溃：没有歌词的歌曲（纯音乐、或 lrc 还没解析出来）下
+     *   `.aplayer-lrc-current` 节点的 textContent 是空的，APlayer 干脆不渲染这个节点，
+     *   原来这里直接 .textContent 会抛
+     *     TypeError: Cannot read properties of null (reading 'textContent')
+     *   而本函数被 timeupdate（每 250ms 一次）+ loadeddata + play/pause 同时调用，
+     *   于是**一次播放会连抛几百条异常**，并且顺手把 Media Session 元数据更新整条打断。
+     *   取不到就当空字符串处理。 */
+    const lrcCurrentEl = document.getElementById("heoMusic-page").querySelector(".aplayer-lrc-current");
+    const currentLrcContent = lrcCurrentEl ? lrcCurrentEl.textContent : '';
     let songName, songArtist;
 
     if ('mediaSession' in navigator) {
@@ -478,6 +507,219 @@ var heo = {
     // 没有工具条时回落到 body，保持本函数单独可用。
     const topbar = document.getElementById('heo-topbar');
     (topbar || document.body).appendChild(btn);
+  },
+
+  /* ------------------------------------------------------------
+   *  换歌单：平台 / 类型 / ID → 带参数跳转
+   *  ------------------------------------------------------------
+   *  「跳转」就是重新加载页面并带上 ?server=&type=&id=，
+   *  getCustomPlayList() 会读这三个参数（见本文件上文），
+   *  所以这里不需要任何热切换逻辑 —— 刷新一次最省事、也不会留下半旧半新的状态。
+   * ---------------------------------------------------------- */
+  initJumpPanel: function () {
+    const btn = document.getElementById('heo-jump-btn');
+    const panel = document.getElementById('qui-jump-panel');
+    if (!btn || !panel) return;
+
+    const selServer = document.getElementById('qui-jump-server');
+    const selType = document.getElementById('qui-jump-type');
+    const inputId = document.getElementById('qui-jump-id');
+    const msg = document.getElementById('qui-jump-msg');
+    const goBtn = document.getElementById('qui-jump-go');
+    const resetBtn = document.getElementById('qui-jump-reset');
+    const closeBtn = document.getElementById('qui-jump-close');
+    const settingsBtn = document.getElementById('heo-settings-btn');
+    const settingsPanel = document.getElementById('heo-settings-panel');
+
+    function setMsg(text, isError) {
+      if (!msg) return;
+      msg.textContent = text || '';
+      msg.classList.toggle('is-error', !!isError);
+    }
+
+    function setOpen(open) {
+      panel.classList.toggle('is-open', open);
+      panel.setAttribute('aria-hidden', open ? 'false' : 'true');
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) setMsg('');
+    }
+
+    /* 把「用户填的东西」解析成 { server?, type?, id }。
+     * 支持三种输入：
+     *   ① 纯 ID          —— 1234567（网易云） / 0039MnYb0qxYhV（QQ 音乐单曲）
+     *   ② 官方页面链接   —— 自动判断平台与类型，并顺手把下拉框也改对
+     *   ③ 认不出来的文本 —— 返回 null，由上层提示
+     * 为什么要支持链接：用户拿到歌单最自然的方式是「分享 → 复制链接」，
+     * 逼他去链接里手工抠数字既容易错，也没必要。
+     * 返回 null 时上层会保留用户自己选的平台/类型，所以这两个字段是可选的。 */
+    function pickByPath(path, server, qid) {
+      const out = { server: server };
+      let m;
+      if ((m = /\/(?:playlist|special|gedan)\/(\d+)/i.exec(path))) { out.type = 'playlist'; out.id = m[1]; }
+      else if ((m = /\/(?:song|music|play|songDetail)\/([A-Za-z0-9]+)/i.exec(path))) { out.type = 'song'; out.id = m[1]; }
+      else if ((m = /\/album(?:Detail)?\/(\d+)/i.exec(path))) { out.type = 'album'; out.id = m[1]; }
+      else if ((m = /\/(?:singer|artist)\/(\d+)/i.exec(path))) { out.type = 'artist'; out.id = m[1]; }
+      else if (qid) out.id = qid;
+      return out.id ? out : null;
+    }
+
+    function parseRef(raw) {
+      const s = String(raw || '').trim();
+      if (!s) return null;
+
+      // ① 纯 ID。网易云/酷狗等是纯数字；QQ 音乐的 id 是字母数字混排（如 0039MnYb0qxYhV）
+      if (/^\d+$/.test(s)) return { id: s };
+      if (/^[A-Za-z0-9]{6,}$/.test(s)) return { id: s };
+
+      // ② 链接
+      let u;
+      try { u = new URL(s, location.href); } catch (e) { return null; }
+      const host = u.hostname || '';
+      const path = u.pathname || '';
+      /* 网易云分享出来的是 hash 路由：music.163.com/#/playlist?id=xxx —— 
+         `#/playlist?id=xxx` 整段都在 u.hash 里，pathname 只有 `/`，
+         searchParams 更是空的。不把 hash 摊平，这类最常见的链接就会全部识别失败。 */
+      const hash = u.hash || '';
+      const hashQuery = hash.indexOf('?') >= 0 ? hash.slice(hash.indexOf('?')) : '';
+      const fullPath = path + hash.split('?')[0];
+
+      function pickParam(p) {
+        const v = p.get('id') || p.get('playlistId') || p.get('songId') || p.get('albumId') || '';
+        return v;
+      }
+      let qid = pickParam(u.searchParams);
+      if (!qid && hashQuery) {
+        try { qid = pickParam(new URLSearchParams(hashQuery)); } catch (e) {}
+      }
+
+      if (/music\.163\.com$/i.test(host)) {
+        const out = { server: 'netease' };
+        if (/\/discover\/toplist|\/playlist/i.test(fullPath) || u.searchParams.has('playlist')) out.type = 'playlist';
+        else if (/\/song/i.test(fullPath)) out.type = 'song';
+        else if (/\/album/i.test(fullPath)) out.type = 'album';
+        else if (/\/artist/i.test(fullPath)) out.type = 'artist';
+        if (qid) { out.id = qid; return out; }
+        return null;
+      }
+
+      if (/y\.qq\.com$/i.test(host)) {
+        const out = { server: 'tencent' };
+        let m;
+        if ((m = /\/playlist\/(\w+)/.exec(fullPath))) { out.type = 'playlist'; out.id = m[1]; }
+        else if ((m = /\/songDetail\/(\w+)/.exec(fullPath)) || (m = /\/song\/(\w+)/.exec(fullPath))) { out.type = 'song'; out.id = m[1]; }
+        else if ((m = /\/albumDetail\/(\w+)/.exec(fullPath)) || (m = /\/album\/(\w+)/.exec(fullPath))) { out.type = 'album'; out.id = m[1]; }
+        else if ((m = /\/singer\/(\w+)/.exec(fullPath))) { out.type = 'artist'; out.id = m[1]; }
+        else if (qid) out.id = qid;
+        return out.id ? out : null;
+      }
+
+      if (/kugou\.com$/i.test(host)) return pickByPath(fullPath, 'kugou', qid);
+      if (/kuwo\.cn$/i.test(host)) return pickByPath(fullPath, 'kuwo', qid);
+      if (/music\.baidu\.com$/i.test(host)) return pickByPath(fullPath, 'baidu', qid);
+
+      // ③ 认不出域名：只要有 id 参数就当 ID 用，平台/类型沿用下拉框
+      if (qid) return { id: qid };
+      const tail = /\/(\d{4,})(?:[\/?#]|$)/.exec(u.href);
+      if (tail) return { id: tail[1] };
+      return null;
+    }
+
+    function submit() {
+      const parsed = parseRef(inputId ? inputId.value : '');
+      if (!parsed || !parsed.id) {
+        setMsg('没认出这个 ID 或链接，检查一下再试', true);
+        if (inputId) inputId.focus();
+        return;
+      }
+      // 链接里带了平台/类型就以链接为准，并同步回下拉框 ——
+      // 用户看到的和真正跳过去的一致，才不会觉得「明明选了网易云却跳到别处」
+      const server = parsed.server || (selServer ? selServer.value : 'netease');
+      const type = parsed.type || (selType ? selType.value : 'playlist');
+
+      if (selServer) selServer.value = server;
+      if (selType) selType.value = type;
+      if (inputId) inputId.value = parsed.id;
+
+      location.href = location.pathname +
+        '?server=' + encodeURIComponent(server) +
+        '&type=' + encodeURIComponent(type) +
+        '&id=' + encodeURIComponent(parsed.id);
+    }
+
+    // 打开面板时把**当前正在放的那个歌单**回填进去，用户一眼能看到自己在哪。
+    // 没带 URL 参数时回落到 config.js / main.js 顶部定义的默认值，
+    // 否则默认歌单进来 ID 是空的，看起来像「没读到任何东西」。
+    (function prefill() {
+      const curServer = params.get('server') || (typeof userServer !== 'undefined' ? userServer : '');
+      const curType = params.get('type') || (typeof userType !== 'undefined' ? userType : '');
+      const curId = params.get('id') || (typeof userId !== 'undefined' ? userId : '');
+      if (curServer && selServer) selServer.value = curServer;
+      if (curType && selType) selType.value = curType;
+      if (curId && inputId) inputId.value = curId;
+    })();
+
+    // 把解析器挂到 heo 上：控制台里能直接 heo._parseRef('链接') 验证规则，
+    // 自动化测试也用它单测 —— 不影响任何正常逻辑。
+    heo._parseRef = parseRef;
+
+    btn.addEventListener('click', function (e) {
+      e.stopPropagation();
+      const next = !panel.classList.contains('is-open');
+      // 两个面板都定位在右上角，同时开会叠成一团：开这个就先关那个。
+      // 用 click() 关设置面板而不是直接删类 —— 面板的开合状态归 settings.js 管，
+      // 绕过它改 DOM 会让它的 aria / 动画状态和实际不一致。
+      if (next && settingsBtn && settingsPanel && settingsPanel.classList.contains('is-open')) {
+        settingsBtn.click();
+      }
+      setOpen(next);
+      if (next && inputId) setTimeout(function () { inputId.focus(); }, 90);
+    });
+
+    // 打开设置面板时把本面板收掉（同理，避免重叠）
+    if (settingsBtn) settingsBtn.addEventListener('click', function () { setOpen(false); });
+
+    if (closeBtn) closeBtn.addEventListener('click', function (e) { e.stopPropagation(); setOpen(false); });
+    if (goBtn) goBtn.addEventListener('click', function (e) { e.stopPropagation(); submit(); });
+    if (resetBtn) {
+      resetBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        location.href = location.pathname;   // 丢掉全部查询参数 = 回到默认歌单
+      });
+    }
+
+    panel.addEventListener('click', function (e) { e.stopPropagation(); });
+
+    /* ★ 空格 / 方向键是本页的全局快捷键（播放暂停、切歌、音量），
+     *  在输入框和下拉框里必须把它们挡住 —— 否则在 ID 框里按空格会打出空白
+     *  的同时把歌切了，在下拉框里按上下键调选项会顺手切歌。
+     *  stopPropagation 只截冒泡，不影响控件自身默认行为。 */
+    [selServer, selType, inputId].forEach(function (el) {
+      if (!el) return;
+      ['keydown', 'keyup', 'keypress'].forEach(function (ev) {
+        el.addEventListener(ev, function (e) { e.stopPropagation(); });
+      });
+    });
+    if (inputId) {
+      inputId.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); submit(); }
+      });
+    }
+
+    /* 点面板外面收起。
+     * ★ 必须用**捕获阶段**（第三个参数 true），不能用默认冒泡。
+     *   本页有多处会在冒泡链上 stopPropagation —— 最典型的是歌词行：
+     *   addLyricClickEvent() 里点到 <p> 会 stopPropagation（为了「点歌词跳进度」不误触别的），
+     *   冒泡被它截断后这个 document 监听根本收不到事件，
+     *   表现就是「点歌词那一块，面板不关」。捕获阶段先于目标阶段执行，截不断。 */
+    document.addEventListener('click', function (e) {
+      if (!panel.classList.contains('is-open')) return;
+      if (panel.contains(e.target) || btn.contains(e.target)) return;
+      setOpen(false);
+    }, true);
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && panel.classList.contains('is-open')) setOpen(false);
+    });
   },
 
   /**
@@ -1045,6 +1287,217 @@ var heo = {
         requestAnimationFrame(function () { patchListScroll(); });
       }
 
+      /* ================= ④ 会员曲目（试听 30s）识别 =================
+       * 背景：网易云等平台的会员曲，meting 接口**照样给 url**（不是空、不报错），
+       *   只是它指向一个只有 30 秒的试听片段。实测：试听片段体积固定
+       *   0.46MB / 0.69MB（≈28.8s），而完整曲最小也有 4.3MB。
+       *
+       * 难点：歌单 JSON 只有 name / artist / url / pic / lrc 五个字段，**没有时长**，
+       *   所以「哪几首是试听」在拿到音频之前根本无从得知。于是用两条互补的路：
+       *
+       *   A. 免费路（零额外请求）—— 某首歌一播放，loadedmetadata 里就有真实 duration，
+       *      < 35 秒即判定为试听。缺点：只能覆盖「已经播过的」。
+       *   B. 后台路（补 A 的空档）—— 列表里滚到可见的行，用「越界 Range 请求」
+       *      靠 HTTP 状态码判断体积，实测每次只花 0～1 个字节（详见 probeOne）。
+       *
+       * 两条路结论都写进 previewMap 并落盘，跨会话累积：
+       * 听得越多，列表上的徽标就越全，重复打开同一个歌单不再产生任何请求。
+       */
+      const PREVIEW_CACHE_KEY = 'quimusic_preview_map';
+      const PREVIEW_MAX_DURATION = 35;        // 秒：小于它判为试听片段
+      const PREVIEW_PROBE_OFFSET = 1200000;   // 字节：越界探测用的偏移量（1.2MB）
+      const PROBE_MAX_PER_LOAD = 40;          // 单次打开最多后台探测多少首（约 4 屏）
+
+      // { 歌曲key: 1 = 试听片段 | 0 = 完整曲 }
+      let previewMap = (function () {
+        try {
+          const raw = JSON.parse(localStorage.getItem(PREVIEW_CACHE_KEY) || '{}');
+          return (raw && typeof raw === 'object' && !Array.isArray(raw)) ? raw : {};
+        } catch (e) { return {}; }
+      })();
+
+      function savePreviewMap() {
+        try { localStorage.setItem(PREVIEW_CACHE_KEY, JSON.stringify(previewMap)); } catch (e) {}
+      }
+
+      /* 一首歌的稳定标识：优先取 meting url 里的 id（换歌单顺序、换播放顺序都不变），
+         拿不到 id 时退回「曲名|歌手」。
+         ★ url 可能被 Worker 改写成 `?audio=<编码后的原地址>`，所以要先
+           decodeURIComponent 再匹配，否则只能看到一层 `%26id%3D`。 */
+      function songKey(audio) {
+        if (!audio) return '';
+        let u = audio.url || '';
+        try { u = decodeURIComponent(u); } catch (e) {}
+        const m = /[?&]id=([A-Za-z0-9]+)/.exec(u);
+        if (m) return m[1];
+        return (audio.name || '') + '|' + (audio.artist || '');
+      }
+
+      function applyBadge(index) {
+        const li = ol.children[index];
+        if (!li || li.querySelector('.qui-preview-badge')) return;
+        // 打一个行级标记：CSS 靠它让歌手名不再被压缩（否则长曲名 + 徽标会把歌手挤没）
+        li.classList.add('qui-has-preview');
+        const badge = document.createElement('span');
+        badge.className = 'qui-preview-badge';
+        badge.textContent = '试听 30s';
+        li.appendChild(badge);
+      }
+
+      function removeBadge(index) {
+        const li = ol.children[index];
+        if (!li) return;
+        const badge = li.querySelector('.qui-preview-badge');
+        if (badge) badge.remove();
+        li.classList.remove('qui-has-preview');
+      }
+
+      function shortName(name) {
+        const s = String(name || '这首歌');
+        return s.length > 16 ? s.slice(0, 16) + '…' : s;
+      }
+
+      /* ---- A. 播放时用真实时长判定 ---- */
+      const hintedKeys = {};   // 本次会话已提示过的歌，避免来回切歌反复弹
+
+      function onMetaLoaded() {
+        const player = window.ap;
+        if (!player || !player.audio) return;
+        const d = player.audio.duration;
+        // 直播流 / 元数据还没就绪时 duration 会是 Infinity 或 NaN，不能拿来判定
+        if (!isFinite(d) || d <= 0) return;
+        const idx = player.list.index;
+        const audio = player.list.audios[idx];
+        const key = songKey(audio);
+        if (!key) return;
+
+        if (d < PREVIEW_MAX_DURATION) {
+          if (previewMap[key] !== 1) { previewMap[key] = 1; savePreviewMap(); }
+          applyBadge(idx);
+          if (!hintedKeys[key]) {
+            hintedKeys[key] = 1;
+            showQuiToast('《' + shortName(audio && audio.name) + '》是会员歌曲，仅可试听 30 秒');
+          }
+        } else if (previewMap[key] === 1) {
+          // 以前判成试听、现在拿到完整版（平台改了权限等）：以真实时长为准，撤掉徽标
+          previewMap[key] = 0;
+          savePreviewMap();
+          removeBadge(idx);
+        }
+      }
+
+      function attachMetaHook() {
+        const player = window.ap;
+        if (!player || !player.audio) return false;
+        if (player.audio.__quiPreviewHooked) return true;
+        player.audio.__quiPreviewHooked = true;
+        player.audio.addEventListener('loadedmetadata', onMetaLoaded);
+        return true;
+      }
+
+      function syncKnownBadges() {
+        const player = window.ap;
+        if (!player || !player.list) return;
+        const audios = player.list.audios || [];
+        for (let i = 0; i < audios.length; i++) {
+          if (previewMap[songKey(audios[i])] === 1) applyBadge(i);
+        }
+      }
+
+      /* ---- B. 后台探测可见行 ---- */
+      let probeBudget = PROBE_MAX_PER_LOAD;
+      const probeQueue = [];
+      let probing = false;
+
+      function probeOne(url) {
+        /* 判据只用 HTTP 状态码，不读任何**跨域响应头**。
+         * 请求 bytes=OFFSET-OFFSET（OFFSET = 1.2MB），按 RFC：
+         *   · 文件比 OFFSET 小 → 必须回 416 Range Not Satisfiable
+         *   · 文件比 OFFSET 大 → 回 206，只带 1 个字节
+         * 于是「416 = 试听片段，206 = 完整曲」，一次探测实际流量 0～1 字节。
+         *
+         * 为什么不用 Content-Range 读总长度：它不是 CORS 安全响应头，
+         *   跨域下 JS 读不到（实测 get('content-range') === null），
+         *   要读必须让服务端补 Access-Control-Expose-Headers，
+         *   而音频 Worker 是独立部署的，不能假设它一定被更新。
+         * 万一服务端忽略 Range 直接回 200，就退回读 Content-Length
+         *   —— 这个**是**安全响应头，跨域可读；读完立刻取消 body。 */
+        return fetch(url, {
+          method: 'GET',
+          headers: { 'Range': 'bytes=' + PREVIEW_PROBE_OFFSET + '-' + PREVIEW_PROBE_OFFSET }
+        }).then(function (r) {
+          let verdict = null;
+          if (r.status === 416) verdict = 1;          // 比 OFFSET 小 → 试听片段
+          else if (r.status === 206) verdict = 0;     // 比 OFFSET 大 → 完整曲
+          else if (r.status === 200) {
+            const cl = parseInt(r.headers.get('content-length') || '0', 10);
+            if (cl) verdict = (cl < PREVIEW_PROBE_OFFSET) ? 1 : 0;
+          }
+          // 不管哪种结果都别把音频读下来
+          try { if (r.body && r.body.cancel) r.body.cancel(); } catch (e) {}
+          return verdict;   // null = 这次没测出来（限流/5xx/断网），不写缓存
+        }).catch(function () { return null; });
+      }
+
+      function runProbe() {
+        if (probing || !probeQueue.length) return;
+        const task = probeQueue.shift();
+        probeBudget--;
+        probing = true;
+        probeOne(task.url).then(function (verdict) {
+          // ★ 注意用 !== null 判断：verdict 为 0（完整曲）也是有效结论
+          if (verdict !== null) {
+            previewMap[task.key] = verdict;
+            savePreviewMap();
+            if (verdict === 1) applyBadge(task.index);
+            else removeBadge(task.index);
+          }
+          probing = false;
+          if (probeQueue.length && probeBudget > 0) setTimeout(runProbe, 200);
+        });
+      }
+
+      function setupProbe() {
+        // 没有 Worker 就没有 CORS 头，跨域 fetch 读不到 Content-Range / Content-Length
+        // （不透明响应），探测必然失败 —— 直接不做，省的是一堆白请求。
+        if (!musicWorkerUrl) return;
+        if (typeof IntersectionObserver !== 'function') return;
+        const player = window.ap;
+        if (!player || !player.list) return;
+        const audios = player.list.audios || [];
+        const seen = {};
+
+        const io = new IntersectionObserver(function (entries) {
+          // 列表收起时（手机端抽屉关闭）不探测，免得白花请求
+          if (list.classList.contains('aplayer-list-hide')) return;
+          for (let k = 0; k < entries.length; k++) {
+            const entry = entries[k];
+            if (!entry.isIntersecting) continue;
+            if (probeBudget - probeQueue.length <= 0) return;
+            const index = Array.prototype.indexOf.call(ol.children, entry.target);
+            if (index < 0 || seen[index]) continue;
+            seen[index] = 1;
+            const audio = audios[index];
+            if (!audio || !audio.url) continue;
+            // 正在播的这首交给 A（时长）那条路，不重复请求
+            if (index === player.list.index) continue;
+            const key = songKey(audio);
+            // 已经有结论（0 或 1）就不再请求 —— 这是「第二次打开零请求」的关键
+            if (!key || previewMap[key] !== undefined) continue;
+            probeQueue.push({ index: index, key: key, url: audio.url });
+            runProbe();
+          }
+        }, { root: ol });
+
+        Array.prototype.forEach.call(ol.children, function (li) { io.observe(li); });
+      }
+
+      if (!attachMetaHook()) {
+        requestAnimationFrame(function () { attachMetaHook(); });
+      }
+      syncKnownBadges();
+      setupProbe();
+
       /* ================= ① 歌单内搜索 ================= */
       const box = document.createElement('div');
       box.className = 'qui-search';
@@ -1139,6 +1592,7 @@ var heo = {
   init: function() {
     this.getCustomPlayList();
     this.addHomeButton();
+    this.initJumpPanel();
     this.initVisualizer();
     this.initPlaylistExtras();
     this.initScrollEvents();

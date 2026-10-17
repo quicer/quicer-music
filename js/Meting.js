@@ -102,6 +102,53 @@ class MetingJSElement extends HTMLElement {
     fetch(url)
       .then(res => res.json())
       .then(result => this._loadPlayer(result))
+      .catch(err => {
+        // 网络断了 / 上游 5xx / 返回的不是 JSON —— 全都会落到这里。
+        // 以前这里什么都不做，页面就停在加载动画上（要等 index.html 里那个
+        // 8 秒兜底定时器才消失），用户完全不知道发生了什么。
+        console.warn('[MetingJS] 歌单请求失败', err)
+        this._renderFail('网络不太顺，歌单没取到。刷新页面或换个歌单再试。')
+      })
+  }
+
+  /* ------------------------------------------------------------
+   *  歌单加载失败时的兜底界面
+   *  ------------------------------------------------------------
+   *  触发场景（都是从「换歌单」那个入口最容易踩到的）：
+   *    · ID 填错 / 平台选错 → 接口返回 { error: ... }（对象，不是数组）
+   *    · 歌单是私密的、或平台限流 → 空数组
+   *    · 网络异常 → _parse 里的 catch
+   *  以前这三种都是「什么都不显示」，用户只会看到一片空白。
+   * ---------------------------------------------------------- */
+  _failReason(data) {
+    if (data && data.error) return '接口说：' + String(data.error).slice(0, 80)
+    if (data && !Array.isArray(data)) return '这个 ID 对应的内容不存在，或者该平台不支持这种类型'
+    return '这个歌单是空的，或者 ID 不对'
+  }
+
+  _renderFail(text) {
+    const host = document.getElementById('heoMusic-page') || this
+    if (!host) return
+    const old = host.querySelector('.qui-load-fail')
+    if (old) old.remove()
+
+    const box = document.createElement('div')
+    box.className = 'qui-load-fail'
+    box.innerHTML =
+      '<p class="qui-load-fail-title">没取到歌单</p>' +
+      '<p class="qui-load-fail-sub"></p>' +
+      '<button type="button" class="heo-btn-primary" data-qui-reset>回到默认歌单</button>'
+    box.querySelector('.qui-load-fail-sub').textContent = text || ''
+    box.querySelector('[data-qui-reset]').addEventListener('click', function () {
+      location.href = location.pathname   // 丢掉查询参数 = 回默认歌单
+    })
+    host.appendChild(box)
+
+    // ★ 启动遮罩只在「.aplayer 出现」时才消失（见 index.html 底部脚本），
+    //   而加载失败根本不会有 .aplayer —— 不在这里主动收掉的话，
+    //   用户会对着加载动画盯满 8 秒才看到这块提示。
+    const loadEl = document.getElementById('qui-loading')
+    if (loadEl) loadEl.classList.add('qui-hidden')
   }
 
   _loadPlayer(data) {
@@ -114,7 +161,12 @@ class MetingJSElement extends HTMLElement {
       listFolded: window.innerWidth < 768 ? true : false
     }
 
-    if (!data.length) return
+    if (!Array.isArray(data) || !data.length) {
+      // 以前是一句 `if (!data.length) return`：对象（含 error 字段）会被放行，
+      // APlayer 拿到非数组会直接崩；空数组则静默什么都不显示。
+      this._renderFail(this._failReason(data))
+      return
+    }
 
     let options = {
       ...defaultOption,

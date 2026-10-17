@@ -521,8 +521,6 @@ var heo = {
     const panel = document.getElementById('qui-jump-panel');
     if (!btn || !panel) return;
 
-    const selServer = document.getElementById('qui-jump-server');
-    const selType = document.getElementById('qui-jump-type');
     const inputId = document.getElementById('qui-jump-id');
     const msg = document.getElementById('qui-jump-msg');
     const goBtn = document.getElementById('qui-jump-go');
@@ -530,6 +528,163 @@ var heo = {
     const closeBtn = document.getElementById('qui-jump-close');
     const settingsBtn = document.getElementById('heo-settings-btn');
     const settingsPanel = document.getElementById('heo-settings-panel');
+
+    /* 已经建好的自绘下拉实例。用途有两个：
+     *   ① 同一时刻只让一个下拉展开（都展开会叠在一起）
+     *   ② 面板收起时把它们一起收掉，免得下次打开还是展开态 */
+    const openSelects = [];
+
+    /* ---- 自绘下拉 ----
+     * 为什么不用原生 <select>：展开后的选项列表由操作系统绘制，CSS 管不到
+     * （Windows 上是系统白底弹层），而本站控件是深色底 + 近白色字 ——
+     * 于是「白底白字看不见」，圆角/内边距/深色阴影也无从谈起。
+     *
+     * 值的存放位置：根节点 .qui-select 的 data-value。
+     * 对外接口刻意做成 getValue() / setValue(v) / close()，
+     * 与原来 select.value 的读写习惯一一对应，替换处只改调用形式、不改逻辑。 */
+    function makeSelect(root) {
+      if (!root) return null;
+      const btn = root.querySelector('.qui-select-btn');
+      const list = root.querySelector('.qui-select-list');
+      const valueEl = root.querySelector('.qui-select-value');
+      if (!btn || !list || !valueEl) return null;
+
+      const items = Array.prototype.slice.call(list.querySelectorAll('.qui-select-item'));
+      let active = 0;   // 键盘高亮位置（不是「已选中」，已选中用 aria-selected 表示）
+
+      function labelOf(v) {
+        for (let i = 0; i < items.length; i++) {
+          if (items[i].getAttribute('data-value') === v) return items[i].textContent;
+        }
+        return '';
+      }
+
+      function getValue() {
+        const v = root.getAttribute('data-value');
+        if (v && labelOf(v)) return v;
+        return items.length ? items[0].getAttribute('data-value') : '';
+      }
+
+      /* 写入值。未知值直接忽略 —— 宁可不改，也不要让按钮文字变成一片空白。 */
+      function setValue(v) {
+        if (!v || !labelOf(v)) return false;
+        root.setAttribute('data-value', v);
+        valueEl.textContent = labelOf(v);
+        items.forEach(function (it) {
+          it.setAttribute('aria-selected', it.getAttribute('data-value') === v ? 'true' : 'false');
+        });
+        return true;
+      }
+
+      function isOpen() { return root.classList.contains('is-open'); }
+
+      function highlight(i) {
+        if (!items.length) return;
+        const n = items.length;
+        active = ((i % n) + n) % n;   // 负数也能正确回绕
+        items.forEach(function (it, k) { it.classList.toggle('is-active', k === active); });
+        const el = items[active];
+        if (el && el.scrollIntoView) {
+          try { el.scrollIntoView({ block: 'nearest' }); } catch (e) { el.scrollIntoView(false); }
+        }
+      }
+
+      function open() {
+        if (isOpen()) return;
+        openSelects.forEach(function (o) { if (o && o !== api) o.close(); });
+        root.classList.add('is-open');
+        btn.setAttribute('aria-expanded', 'true');
+        let cur = 0;
+        for (let i = 0; i < items.length; i++) {
+          if (items[i].getAttribute('data-value') === getValue()) cur = i;
+        }
+        highlight(cur);
+      }
+
+      function close(focusBack) {
+        if (!isOpen()) {
+          if (focusBack) { try { btn.focus(); } catch (e) {} }
+          return;
+        }
+        root.classList.remove('is-open');
+        btn.setAttribute('aria-expanded', 'false');
+        items.forEach(function (it) { it.classList.remove('is-active'); });
+        if (focusBack) { try { btn.focus(); } catch (e) {} }
+      }
+
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        if (isOpen()) close(false); else open();
+      });
+
+      list.addEventListener('click', function (e) {
+        const it = e.target && e.target.closest ? e.target.closest('.qui-select-item') : null;
+        if (!it) return;
+        e.stopPropagation();
+        setValue(it.getAttribute('data-value'));
+        close(true);
+      });
+
+      /* 键盘：↑↓ 移动、Home/End 首尾、Enter/Space 选中、Esc 收起、Tab 收起。
+       * ★★ 本页把 **空格 / ←→ / ↑↓** 注册成了全局快捷键（播放暂停、切歌、音量），
+       *    所以除了「下拉没展开时的 Esc」，其余按键一律 stopPropagation 掉 ——
+       *    否则在下拉里按 ↑↓ 会顺手把音量改了。 */
+      function onKeyDown(e) {
+        const k = e.key;
+        if (k === 'Escape') {
+          if (isOpen()) { e.preventDefault(); e.stopPropagation(); close(true); }
+          return;   // 没展开时把 Esc 留给外层面板
+        }
+        e.stopPropagation();
+        if (!isOpen()) {
+          if (k === 'Enter' || k === ' ' || k === 'Spacebar' ||
+              k === 'ArrowDown' || k === 'ArrowUp') {
+            e.preventDefault();
+            open();
+            if (k === 'ArrowUp') highlight(active - 1);
+          }
+          return;
+        }
+        if (k === 'ArrowDown') { e.preventDefault(); highlight(active + 1); }
+        else if (k === 'ArrowUp') { e.preventDefault(); highlight(active - 1); }
+        else if (k === 'Home') { e.preventDefault(); highlight(0); }
+        else if (k === 'End') { e.preventDefault(); highlight(items.length - 1); }
+        else if (k === 'Enter' || k === ' ' || k === 'Spacebar') {
+          e.preventDefault();
+          const it = items[active];
+          if (it) setValue(it.getAttribute('data-value'));
+          close(true);
+        } else if (k === 'Tab') { close(false); }
+      }
+      btn.addEventListener('keydown', onKeyDown);
+      list.addEventListener('keydown', onKeyDown);
+      // Space 在部分浏览器还会走 keyup / keypress，一并挡住，别漏给全局快捷键
+      ['keyup', 'keypress'].forEach(function (ev) {
+        root.addEventListener(ev, function (e) { e.stopPropagation(); });
+      });
+
+      /* 点下拉外面收起。
+       * ★ 同样必须用**捕获阶段**（第三个参数 true），原因见本文件末尾那段说明：
+       *   冒泡链上有地方会 stopPropagation，默认冒泡的监听收不到事件。 */
+      document.addEventListener('click', function (e) {
+        if (!isOpen()) return;
+        if (root.contains(e.target)) return;
+        close(false);
+      }, true);
+
+      const api = {
+        root: root,
+        getValue: getValue,
+        setValue: setValue,
+        open: open,
+        close: close
+      };
+      openSelects.push(api);
+      return api;
+    }
+
+    const uiServer = makeSelect(document.getElementById('qui-jump-server'));
+    const uiType = makeSelect(document.getElementById('qui-jump-type'));
 
     function setMsg(text, isError) {
       if (!msg) return;
@@ -542,6 +697,10 @@ var heo = {
       panel.setAttribute('aria-hidden', open ? 'false' : 'true');
       btn.setAttribute('aria-expanded', open ? 'true' : 'false');
       if (open) setMsg('');
+      /* 收起面板时把展开着的下拉也收掉。
+       * 不这么做的话，下次打开面板会看到一个「上次没关的下拉」浮在外面，
+       * 而且它的 aria-expanded 还是 true。 */
+      else openSelects.forEach(function (o) { if (o) o.close(false); });
     }
 
     /* 把「用户填的东西」解析成 { server?, type?, id }。
@@ -633,11 +792,11 @@ var heo = {
       }
       // 链接里带了平台/类型就以链接为准，并同步回下拉框 ——
       // 用户看到的和真正跳过去的一致，才不会觉得「明明选了网易云却跳到别处」
-      const server = parsed.server || (selServer ? selServer.value : 'netease');
-      const type = parsed.type || (selType ? selType.value : 'playlist');
+      const server = parsed.server || (uiServer ? uiServer.getValue() : 'netease');
+      const type = parsed.type || (uiType ? uiType.getValue() : 'playlist');
 
-      if (selServer) selServer.value = server;
-      if (selType) selType.value = type;
+      if (uiServer) uiServer.setValue(server);
+      if (uiType) uiType.setValue(type);
       if (inputId) inputId.value = parsed.id;
 
       location.href = location.pathname +
@@ -653,8 +812,8 @@ var heo = {
       const curServer = params.get('server') || (typeof userServer !== 'undefined' ? userServer : '');
       const curType = params.get('type') || (typeof userType !== 'undefined' ? userType : '');
       const curId = params.get('id') || (typeof userId !== 'undefined' ? userId : '');
-      if (curServer && selServer) selServer.value = curServer;
-      if (curType && selType) selType.value = curType;
+      if (curServer && uiServer) uiServer.setValue(curServer);
+      if (curType && uiType) uiType.setValue(curType);
       if (curId && inputId) inputId.value = curId;
     })();
 
@@ -690,16 +849,22 @@ var heo = {
     panel.addEventListener('click', function (e) { e.stopPropagation(); });
 
     /* ★ 空格 / 方向键是本页的全局快捷键（播放暂停、切歌、音量），
-     *  在输入框和下拉框里必须把它们挡住 —— 否则在 ID 框里按空格会打出空白
-     *  的同时把歌切了，在下拉框里按上下键调选项会顺手切歌。
-     *  stopPropagation 只截冒泡，不影响控件自身默认行为。 */
-    [selServer, selType, inputId].forEach(function (el) {
+     *  在输入框和下拉里必须把它们挡住 —— 否则在 ID 框里按空格会打出空白
+     *  的同时把歌切了。
+     *  下拉（.qui-select）的 keydown 已经在 makeSelect 里按按键逐个处理并
+     *  stopPropagation 了（那里还要负责移动高亮，不能只做拦截），
+     *  所以这里只补 keyup / keypress 这一层，避免有浏览器在 keyup 阶段
+     *  又让按键漏到全局。 */
+    [uiServer && uiServer.root, uiType && uiType.root].forEach(function (el) {
       if (!el) return;
-      ['keydown', 'keyup', 'keypress'].forEach(function (ev) {
+      ['keyup', 'keypress'].forEach(function (ev) {
         el.addEventListener(ev, function (e) { e.stopPropagation(); });
       });
     });
     if (inputId) {
+      ['keydown', 'keyup', 'keypress'].forEach(function (ev) {
+        inputId.addEventListener(ev, function (e) { e.stopPropagation(); });
+      });
       inputId.addEventListener('keydown', function (e) {
         if (e.key === 'Enter') { e.preventDefault(); submit(); }
       });

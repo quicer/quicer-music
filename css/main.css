@@ -1043,6 +1043,21 @@ body.qui-hide-visualizer #heo-visualizer {
 #heoMusic-page .aplayer-time .aplayer-icon-menu      { order: 80; }
 #heoMusic-page .aplayer-time .aplayer-icon-lrc       { order: 90; }
 
+/* ---- 隐藏控制条上的「歌词开关」 ----
+ * 设置面板里已经有同功能的开关（见 main.js 的 applyPlayerSettings ① ，
+ * 走 [data-setting="lyrics"] → 给 .aplayer-lrc 加 aplayer-lrc-hide），
+ * 控制条上这个是 APlayer 自带的，功能重复又占位置，所以不显示。
+ *
+ * ★ 只是 display:none，**没有删 DOM、没有解绑事件**：
+ *   APlayer 初始化时已经把 template.lrcButton 的 click 绑好了，
+ *   贸然 remove 会让它内部引用悬空。隐藏之后按钮不可点，效果等价。
+ * ★ 明确不影响设置面板里的「歌词」开关 —— 那个走自己的设置系统与 body 类。
+ * ★ 选择器必须与第 1002 行那条 display:inline-flex 的基础规则**同等特异性**
+ *   （#id + 3 个类）并靠「后出现」取胜；少写一段就会被反压回去。 */
+#heoMusic-page .aplayer-controller .aplayer-time .aplayer-icon-lrc {
+  display: none;
+}
+
 /* ---- 播放键：强调色实心圆，作为控制条的视觉焦点 ---- */
 #heoMusic-page .aplayer-time .aplayer-icon-play {
   width: 42px;
@@ -1696,8 +1711,9 @@ body > .heo-home-btn {
   box-shadow: var(--qm-shadow-lg);
   -webkit-backdrop-filter: var(--qm-blur);
   backdrop-filter: var(--qm-blur);
-  /* ★ 让原生下拉框也走暗色。不写这条的话，Chrome / Safari 弹出的选项列表是白底黑字，
-     在深色界面里像贴了一张纸；同时也能让 select 的箭头在部分平台自动变浅色。 */
+  /* 让本面板内的系统控件（滚动条、输入框自动填充、光标）走深色。
+     2026-10-18 起平台/类型已换成自绘下拉（见下方 .qui-select），
+     这条现在只服务于 ID 输入框与列表滚动条。 */
   color-scheme: dark;
   opacity: 0;
   visibility: hidden;
@@ -1743,7 +1759,6 @@ body > .heo-home-btn {
   display: flex;
 }
 
-.qui-jump select,
 .qui-jump input {
   width: 100%;
   min-width: 0;
@@ -1763,17 +1778,6 @@ body > .heo-home-btn {
               border-color var(--qm-dur) var(--qm-ease);
 }
 
-/* 自画下拉箭头：原生箭头在 appearance:none 之后会消失，
-   而 SVG 里写死的颜色不跟随主题变量，所以把透明度调到 55% 让它看起来是「次级信息」。 */
-.qui-jump select {
-  padding-right: 26px;
-  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23f4f5f8' fill-opacity='.55'%3E%3Cpath d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 8px center;
-  background-size: 14px 14px;
-}
-
-.qui-jump select:focus,
 .qui-jump input:focus {
   background-color: var(--qm-surface-hi);
   border-color: var(--qm-line-3);
@@ -1781,6 +1785,165 @@ body > .heo-home-btn {
 
 .qui-jump input::placeholder {
   color: var(--qm-text-3);
+}
+
+/* ---- 自绘下拉（替代原生 <select>） ----
+ * 原生 select 展开后的选项列表由**操作系统**绘制，CSS 完全管不到：
+ * Windows 上是一块系统白底弹层，而我们给控件设的是近白色字 → 白底白字看不见；
+ * 圆角、内边距、深色阴影也一律无法定制。所以这里改成 button + ul 自己画，
+ * 视觉与会话里其它控件保持同一套令牌，交互（开合 / 键盘 / 点外部关闭）
+ * 全在 main.js 的 makeSelect() 里。
+ *
+ * 值的存放位置：根节点 .qui-select 的 data-value，等价于原来的 select.value。
+ * ---------------------------------------------------------- */
+.qui-jump-field > .qui-select {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.qui-select-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px 0 10px;
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--qm-text);
+  text-align: left;
+  background: var(--qm-surface-3);
+  border: 1px solid var(--qm-line-1);
+  border-radius: var(--qm-r-sm);
+  outline: 0;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: background var(--qm-dur) var(--qm-ease),
+              border-color var(--qm-dur) var(--qm-ease);
+}
+
+.qui-select-btn:hover {
+  border-color: var(--qm-line-2);
+}
+
+/* 展开态与键盘聚焦共用一套高亮：用 :focus-visible 而不是 :focus，
+   免得鼠标点完之后按钮一直亮着 */
+.qui-select-btn:focus-visible,
+.qui-select.is-open .qui-select-btn {
+  background: var(--qm-surface-hi);
+  border-color: var(--qm-line-3);
+}
+
+.qui-select-value {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.qui-select-arrow {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  opacity: 0.55;
+  transition: transform var(--qm-dur) var(--qm-ease);
+}
+
+.qui-select.is-open .qui-select-arrow {
+  transform: rotate(180deg);
+}
+
+/* 展开的选项列表：绝对定位浮在按钮下方，所以 .qui-jump 的 .heo-panel-body
+   必须放开 overflow（见下面那条规则），否则会被裁掉。 */
+.qui-select-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  max-height: 216px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  color: var(--qm-text);
+  /* ★ 这里用**近不透明**的底色，而不是直接复用半透明的 --qm-surface-2。
+   *   列表是浮层，会盖在下方的「类型 / ID」两行和「跳转 / 默认歌单」两个按钮上，
+   *   半透明会让下层的字透上来 —— 实测截图里「酷我音乐」「百度音乐」那几行
+   *   就有明显的按钮重影，正好又踩中「看不清字」这个原始问题。 */
+  background: rgba(23, 23, 31, 0.96);
+  border: 1px solid var(--qm-line-2);
+  border-radius: var(--qm-r-sm);
+  box-shadow: var(--qm-shadow-md);
+  /* 不做 backdrop-filter：底色已经 96% 不透明，模糊看不出来，
+     却要让浏览器每帧算一整块模糊区域（而且它嵌在本就带模糊的面板里，
+     容易出现「越叠越糊」的观感）。 */
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 0.16s var(--qm-ease),
+              transform 0.16s var(--qm-ease),
+              visibility 0.16s;
+}
+
+.qui-select.is-open .qui-select-list {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: none;
+}
+
+.qui-select-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--qm-text);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background var(--qm-dur) var(--qm-ease),
+              color var(--qm-dur) var(--qm-ease);
+}
+
+/* 鼠标悬停与键盘高亮合并成一个视觉：两套都只改背景 */
+.qui-select-item:hover,
+.qui-select-item.is-active {
+  background: var(--qm-surface-hi);
+  color: var(--qm-text);
+}
+
+/* 当前选中项：只加粗 + 右侧强调色圆点，**不换字色**。
+ * ★ 早先写成 color: var(--qm-accent)，实测 #7aa2ff 在这块深底上只有 6.86:1，
+ *   虽然过了 AA(4.5:1) 但没过 AAA(7:1)；而用户对这块的原始抱怨正是「看不见字」，
+ *   所以不让「区分选中态」去牺牲对比度 —— 白字 15:1，层级靠加粗和圆点做。 */
+.qui-select-item[aria-selected="true"] {
+  font-weight: 700;
+}
+
+.qui-select-item[aria-selected="true"]::after {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--qm-accent);
+}
+
+/* ★ .heo-panel-body 默认 overflow-y:auto（设置面板内容很长要滚动）。
+ *  但滚动容器会把绝对定位的下拉列表裁掉，所以换歌单面板这一份单独放开。
+ *  它的内容是固定的三行 + 两个按钮，本来也不需要滚动。 */
+.qui-jump .heo-panel-body {
+  overflow: visible;
 }
 
 .qui-jump-msg {
@@ -2319,6 +2482,29 @@ body > .heo-home-btn {
   /* iOS 上字号小于 16px 的输入框一聚焦就会把整页放大 */
   .qui-jump input {
     font-size: 16px;
+  }
+
+  /* 自绘下拉在手机上跟着放大一档，12.5px 在手指点的目标上偏小。
+     （button 不会触发 iOS 的聚焦缩放，所以不必给到 16px） */
+  .qui-select-btn {
+    height: 38px;
+    font-size: 13.5px;
+  }
+
+  .qui-select-item {
+    padding: 10px;
+    font-size: 13.5px;
+  }
+
+  /* 底部抽屉贴近屏幕下沿，下拉往下展开会被切掉，所以列表改为**向上**展开。 */
+  .qui-select-list {
+    top: auto;
+    bottom: calc(100% + 6px);
+    transform: translateY(4px);
+  }
+
+  .qui-select.is-open .qui-select-list {
+    transform: none;
   }
 
   /* 提示条挪到顶部居中：手机底部整条被控制条与列表抽屉占满了 */

@@ -161,30 +161,56 @@
   <div class="heo-panel-body">
     <p class="qui-jump-tip">选好平台和类型，填 ID 或直接粘贴分享链接</p>
 
-    <label class="qui-jump-row">
-      <span class="qui-jump-label">平台</span>
-      <span class="qui-jump-field">
-        <select id="qui-jump-server">
-          <option value="netease">网易云音乐</option>
-          <option value="tencent">QQ 音乐</option>
-          <option value="kugou">酷狗音乐</option>
-          <option value="kuwo">酷我音乐</option>
-          <option value="baidu">百度音乐</option>
-        </select>
-      </span>
-    </label>
+    <!-- ★ 平台 / 类型刻意**不用原生 <select>**：
+         它展开后的选项列表是操作系统画的，CSS 完全管不到（Windows 上是系统白底弹层），
+         而本站的表单控件是深色底 + 近白色字，于是「白底白字看不见」，
+         圆角、内边距、深色阴影也无从谈起。这里用 button + ul 自绘，
+         结构与交互由 main.js 的 makeSelect() 接管。
+         根节点的 id / data-value 就是「当前值」，等价于原来 select.value。 -->
+    <div class="qui-jump-row">
+      <span class="qui-jump-label" id="qui-jump-server-label">平台</span>
+      <div class="qui-jump-field">
+        <div class="qui-select" id="qui-jump-server" data-value="netease">
+          <button type="button" class="qui-select-btn"
+                  aria-haspopup="listbox" aria-expanded="false"
+                  aria-controls="qui-jump-server-list"
+                  aria-labelledby="qui-jump-server-label">
+            <span class="qui-select-value">网易云音乐</span>
+            <svg class="qui-select-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5z"/></svg>
+          </button>
+          <ul class="qui-select-list" id="qui-jump-server-list" role="listbox"
+              aria-labelledby="qui-jump-server-label">
+            <li class="qui-select-item" role="option" data-value="netease" aria-selected="true">网易云音乐</li>
+            <li class="qui-select-item" role="option" data-value="tencent" aria-selected="false">QQ 音乐</li>
+            <li class="qui-select-item" role="option" data-value="kugou" aria-selected="false">酷狗音乐</li>
+            <li class="qui-select-item" role="option" data-value="kuwo" aria-selected="false">酷我音乐</li>
+            <li class="qui-select-item" role="option" data-value="baidu" aria-selected="false">百度音乐</li>
+          </ul>
+        </div>
+      </div>
+    </div>
 
-    <label class="qui-jump-row">
-      <span class="qui-jump-label">类型</span>
-      <span class="qui-jump-field">
-        <select id="qui-jump-type">
-          <option value="playlist">歌单</option>
-          <option value="song">单曲</option>
-          <option value="album">专辑</option>
-          <option value="artist">歌手</option>
-        </select>
-      </span>
-    </label>
+    <div class="qui-jump-row">
+      <span class="qui-jump-label" id="qui-jump-type-label">类型</span>
+      <div class="qui-jump-field">
+        <div class="qui-select" id="qui-jump-type" data-value="playlist">
+          <button type="button" class="qui-select-btn"
+                  aria-haspopup="listbox" aria-expanded="false"
+                  aria-controls="qui-jump-type-list"
+                  aria-labelledby="qui-jump-type-label">
+            <span class="qui-select-value">歌单</span>
+            <svg class="qui-select-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 10l5 5 5-5z"/></svg>
+          </button>
+          <ul class="qui-select-list" id="qui-jump-type-list" role="listbox"
+              aria-labelledby="qui-jump-type-label">
+            <li class="qui-select-item" role="option" data-value="playlist" aria-selected="true">歌单</li>
+            <li class="qui-select-item" role="option" data-value="song" aria-selected="false">单曲</li>
+            <li class="qui-select-item" role="option" data-value="album" aria-selected="false">专辑</li>
+            <li class="qui-select-item" role="option" data-value="artist" aria-selected="false">歌手</li>
+          </ul>
+        </div>
+      </div>
+    </div>
 
     <label class="qui-jump-row">
       <span class="qui-jump-label">ID</span>
